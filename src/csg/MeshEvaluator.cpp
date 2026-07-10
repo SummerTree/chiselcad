@@ -199,12 +199,12 @@ manifold::CrossSection MeshEvaluator::getChildCrossSection(const CsgNode& node,
                 double r     = getP("r", 0.0);
                 double fnOvr = getP("$fn", 0.0);
                 int    segs  = gen.resolveSegments(std::abs(r), fnOvr);
-                cs = cs.Offset(r, manifold::JoinType::Round, 2.0, segs);
+                cs = cs.Offset(r, manifold::CrossSection::JoinType::Round, 2.0, segs);
             } else if (n.params.count("delta")) {
                 double delta   = getP("delta", 0.0);
                 bool   chamfer = getP("chamfer", 0.0) != 0.0;
-                cs = cs.Offset(delta, chamfer ? manifold::JoinType::Bevel
-                                              : manifold::JoinType::Miter);
+                cs = cs.Offset(delta, chamfer ? manifold::CrossSection::JoinType::Bevel
+                                              : manifold::CrossSection::JoinType::Miter);
             }
 
             return apply2DTransform(cs, n.transform);
