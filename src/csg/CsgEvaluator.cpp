@@ -77,6 +77,8 @@ CsgNodePtr CsgEvaluator::evalNode(const AstNode& node, const glm::mat4& xform, c
             return evalLet(n, xform, color);
         else if constexpr (std::is_same_v<T, ColorNode>)
             return evalColor(n, xform, color);
+        else if constexpr (std::is_same_v<T, OffsetNode>)
+            return evalOffset(n, xform, color);
         return nullptr;
     }, node);
 }
@@ -632,6 +634,34 @@ CsgNodePtr CsgEvaluator::evalExtrusion(const ExtrusionNode& e, const glm::mat4& 
     }
 
     return makeExtrusion(std::move(ext));
+}
+
+// ---------------------------------------------------------------------------
+// offset() — resolve r/delta/chamfer/$fn to doubles; children are evaluated
+// in local space (like extrusion/hull/minkowski) since offsetting isn't
+// equivariant under arbitrary per-child transforms.
+// ---------------------------------------------------------------------------
+CsgNodePtr CsgEvaluator::evalOffset(const OffsetNode& o, const glm::mat4& xform, const ColorAttr& color) {
+    CsgOffset off;
+    off.transform = xform;
+    off.color     = color;
+
+    for (const auto& [name, exprPtr] : o.params) {
+        if (name == "chamfer") {
+            Value cv = m_interp->evaluate(*exprPtr);
+            off.params["chamfer"] = bool(cv) ? 1.0 : 0.0;
+        } else {
+            off.params[name] = m_interp->evalNumber(*exprPtr);
+        }
+    }
+
+    const glm::mat4 identity{1.0f};
+    for (const auto& child : o.children) {
+        if (auto c = evalNode(*child, identity, color))
+            off.children.push_back(std::move(c));
+    }
+
+    return makeOffset(std::move(off));
 }
 
 // ---------------------------------------------------------------------------

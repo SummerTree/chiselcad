@@ -14,6 +14,7 @@ namespace chisel::csg {
 // ---------------------------------------------------------------------------
 struct CsgBoolean;
 struct CsgExtrusion;
+struct CsgOffset;
 
 // ---------------------------------------------------------------------------
 // ColorAttr — the color() attribute in effect at a given point in the tree,
@@ -51,7 +52,7 @@ struct CsgLeaf {
 // ---------------------------------------------------------------------------
 // CsgNode — the CSG IR variant
 // ---------------------------------------------------------------------------
-using CsgNode    = std::variant<CsgLeaf, CsgBoolean, CsgExtrusion>;
+using CsgNode    = std::variant<CsgLeaf, CsgBoolean, CsgExtrusion, CsgOffset>;
 using CsgNodePtr = std::shared_ptr<CsgNode>;
 
 struct CsgBoolean {
@@ -85,6 +86,25 @@ struct CsgExtrusion {
 };
 
 // ---------------------------------------------------------------------------
+// CsgOffset — offset(r=...) / offset(delta=..., chamfer=...) in the CSG IR.
+// Children are 2-D CsgLeaf/CsgBoolean/CsgOffset nodes; MeshEvaluator builds
+// their CrossSection, offsets it, then applies `transform`. Offsetting is
+// not equivariant under arbitrary per-child transforms (like Hull/
+// Minkowski), so children are evaluated in local space and the accumulated
+// transform is applied once to the offset result.
+// ---------------------------------------------------------------------------
+struct CsgOffset {
+    // Resolved numeric params: "r" (rounded offset radius, mutually
+    // exclusive with delta) or "delta" (straight-edge offset distance),
+    // "chamfer" (0/1, only meaningful with delta), "$fn" (segment override
+    // for the rounded case).
+    std::unordered_map<std::string, double> params;
+    std::vector<CsgNodePtr> children;
+    glm::mat4 transform{1.0f};
+    ColorAttr color;
+};
+
+// ---------------------------------------------------------------------------
 // Factory helpers
 // ---------------------------------------------------------------------------
 inline CsgNodePtr makeLeaf(CsgLeaf leaf) {
@@ -95,6 +115,9 @@ inline CsgNodePtr makeBoolean(CsgBoolean b) {
 }
 inline CsgNodePtr makeExtrusion(CsgExtrusion e) {
     return std::make_shared<CsgNode>(std::move(e));
+}
+inline CsgNodePtr makeOffset(CsgOffset o) {
+    return std::make_shared<CsgNode>(std::move(o));
 }
 
 // The ColorAttr in effect at the top of this node's subtree (whichever

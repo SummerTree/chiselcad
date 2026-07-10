@@ -47,6 +47,7 @@ private:
     CsgNodePtr evalExtrusion(const chisel::lang::ExtrusionNode& e, const glm::mat4& xform, const ColorAttr& color);
     CsgNodePtr evalLet(const chisel::lang::LetNode& n, const glm::mat4& xform, const ColorAttr& color);
     CsgNodePtr evalColor(const chisel::lang::ColorNode& n, const glm::mat4& xform, const ColorAttr& color);
+    CsgNodePtr evalOffset(const chisel::lang::OffsetNode& n, const glm::mat4& xform, const ColorAttr& color);
 
     glm::mat4 makeMatrix(const chisel::lang::TransformNode& t) const;
     bool resolveColor(const chisel::lang::Value& c, glm::vec4& out) const;

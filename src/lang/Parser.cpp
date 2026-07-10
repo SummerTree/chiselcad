@@ -140,6 +140,9 @@ AstNodePtr Parser::parseNode() {
     case TokenKind::RotateExtrude:
         return parseExtrusion(k);
 
+    case TokenKind::Offset:
+        return parseOffset();
+
     case TokenKind::Union:
     case TokenKind::Difference:
     case TokenKind::Intersection:
@@ -868,6 +871,24 @@ void Parser::parseExtrusionParams(std::unordered_map<std::string, ExprPtr>& para
         }
         if (m_pos == prevPos) break;
     }
+}
+
+// ---------------------------------------------------------------------------
+// offset(r=...) / offset(delta=..., chamfer=...) — grows/shrinks 2-D
+// children. Params share parseExtrusionParams' generic key=value parsing
+// (kept as raw ExprPtr; CsgEvaluator resolves r/delta/chamfer/$fn).
+// ---------------------------------------------------------------------------
+AstNodePtr Parser::parseOffset() {
+    const Token& kw = advance();
+    OffsetNode node;
+    node.loc = kw.loc;
+
+    expect(TokenKind::LParen, "expected '(' after 'offset'");
+    parseExtrusionParams(node.params);
+    expect(TokenKind::RParen, "expected ')' after 'offset' arguments");
+
+    node.children = parseBody();
+    return makeOffset(std::move(node));
 }
 
 // ---------------------------------------------------------------------------

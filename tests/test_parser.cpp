@@ -582,3 +582,39 @@ TEST_CASE("Parser:linear_extrude with twist and center", "[parser]") {
     REQUIRE(e.params.count("twist")  == 1);
     REQUIRE(e.params.count("center") == 1);
 }
+
+// ---------------------------------------------------------------------------
+// offset()
+// ---------------------------------------------------------------------------
+static const OffsetNode& asOffset(const AstNodePtr& n) {
+    return std::get<OffsetNode>(*n);
+}
+
+TEST_CASE("Parser:offset with rounded radius", "[parser]") {
+    auto r = parse("offset(r=2) circle(r=5);");
+    REQUIRE(r.roots.size() == 1);
+    const auto& o = asOffset(r.roots[0]);
+    REQUIRE(o.params.count("r") == 1);
+    REQUIRE(o.children.size() == 1);
+
+    Interpreter interp;
+    REQUIRE(interp.evalNumber(*o.params.at("r")) == Approx(2.0));
+}
+
+TEST_CASE("Parser:offset with delta and chamfer", "[parser]") {
+    auto r = parse("offset(delta=1, chamfer=true) square([10,10]);");
+    const auto& o = asOffset(r.roots[0]);
+    REQUIRE(o.params.count("delta")   == 1);
+    REQUIRE(o.params.count("chamfer") == 1);
+
+    Interpreter interp;
+    REQUIRE(interp.evalNumber(*o.params.at("delta")) == Approx(1.0));
+    Value cv = interp.evaluate(*o.params.at("chamfer"));
+    REQUIRE(bool(cv) == true);
+}
+
+TEST_CASE("Parser:offset wraps multiple children", "[parser]") {
+    auto r = parse("offset(r=-1) { square([5,5]); circle(r=3); }");
+    const auto& o = asOffset(r.roots[0]);
+    REQUIRE(o.children.size() == 2);
+}
