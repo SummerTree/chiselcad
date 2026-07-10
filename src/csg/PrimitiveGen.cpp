@@ -1,6 +1,7 @@
 #include "PrimitiveGen.h"
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <vector>
 
 namespace chisel::csg {
@@ -177,14 +178,17 @@ manifold::Manifold PrimitiveGen::generate(const CsgLeaf& leaf) const {
     // hand it straight to Manifold's MeshGL constructor.
     // ------------------------------------------------------------------
     case CsgLeaf::Kind::Mesh: {
+        static_assert(sizeof(glm::vec3) == 3 * sizeof(float),
+                      "glm::vec3 must be a tightly-packed 3-float struct for the bulk copy below");
         manifold::MeshGL mesh;
         mesh.numProp = 3;
-        mesh.vertProperties.reserve(leaf.meshPositions.size() * 3);
-        for (const auto& pos : leaf.meshPositions) {
-            mesh.vertProperties.push_back(pos.x);
-            mesh.vertProperties.push_back(pos.y);
-            mesh.vertProperties.push_back(pos.z);
-        }
+        // Bulk copy rather than a per-component push_back loop — imported
+        // meshes can be tens of thousands of vertices, unlike the procedural
+        // primitives above.
+        mesh.vertProperties.resize(leaf.meshPositions.size() * 3);
+        if (!leaf.meshPositions.empty())
+            std::memcpy(mesh.vertProperties.data(), leaf.meshPositions.data(),
+                        leaf.meshPositions.size() * sizeof(glm::vec3));
         mesh.triVerts = leaf.meshIndices;
         return manifold::Manifold(mesh);
     }

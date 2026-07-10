@@ -33,6 +33,8 @@ static RawStlMesh loadBinary(std::ifstream& f, uint32_t triCount) {
 
     if (!f)
         out.error = "Unexpected end of file while reading binary STL";
+    else if (out.positions.empty())
+        out.error = "No geometry found in binary STL"; // triCount == 0 — legal but empty
     return out;
 }
 

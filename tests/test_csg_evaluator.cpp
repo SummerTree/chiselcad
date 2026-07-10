@@ -939,3 +939,29 @@ TEST_CASE("CsgEval:import() with no arguments reports a diagnostic", "[csg][tier
     REQUIRE(s.roots.empty());
     REQUIRE_FALSE(s.evalDiags.empty());
 }
+
+TEST_CASE("CsgEval:import() recognizes a file literally named '.stl'", "[csg][tier-e]") {
+    // std::filesystem::path::extension() treats ".stl" (leading dot, no
+    // other dot) as having *no* extension (the "dotfile" rule) — the
+    // matching in evalImport() must not rely on extension() alone.
+    std::string src = "import(\"" + fixture("import/.stl").string() + "\");";
+    auto s = evaluate(src);
+    REQUIRE(s.roots.size() == 1);
+    REQUIRE(asLeaf(s.roots[0]).kind == CsgLeaf::Kind::Mesh);
+    REQUIRE(s.evalDiags.empty());
+}
+
+TEST_CASE("CsgEval:import() positional argument wins over file= regardless of order", "[csg][tier-e]") {
+    const std::string realPath = fixture("import/triangle.stl").string();
+
+    // Named argument appears first in the source, positional second — the
+    // positional must still win (order-independent precedence).
+    auto s1 = evaluate("import(file=\"does_not_exist.stl\", \"" + realPath + "\");");
+    REQUIRE(s1.roots.size() == 1);
+    REQUIRE(s1.evalDiags.empty());
+
+    // Positional first, named second — positional wins here too.
+    auto s2 = evaluate("import(\"" + realPath + "\", file=\"does_not_exist.stl\");");
+    REQUIRE(s2.roots.size() == 1);
+    REQUIRE(s2.evalDiags.empty());
+}

@@ -87,7 +87,6 @@
       wasn't hashed into the cache key at all, so two different shapes at the same transform
       could silently swap cached meshes.
 - [ ] `surface()`
-- [ ] `surface()`
 - [ ] `text()` (requires font rendering — significant work)
 
 ## v3 — Tooling & Visual Quality

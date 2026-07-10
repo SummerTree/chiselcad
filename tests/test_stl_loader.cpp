@@ -36,3 +36,12 @@ TEST_CASE("StlLoader:ASCII file with no facets reports an error", "[stl-loader][
     auto mesh = loadStlRaw(fixture("import/empty.stl"));
     REQUIRE_FALSE(mesh.error.empty());
 }
+
+TEST_CASE("StlLoader:binary file with zero triangles reports an error", "[stl-loader][tier-e]") {
+    // A legal-but-empty binary STL (80-byte header + triCount=0) must not
+    // silently succeed with empty geometry — that would let import() build
+    // an invisible Mesh leaf with no diagnostic at all.
+    auto mesh = loadStlRaw(fixture("import/empty_binary.stl"));
+    REQUIRE_FALSE(mesh.error.empty());
+    REQUIRE(mesh.positions.empty());
+}

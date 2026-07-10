@@ -712,12 +712,19 @@ CsgNodePtr CsgEvaluator::evalImport(const ModuleCallNode& call, const glm::mat4&
         }
     };
 
-    // File path: first positional argument, or file=/filename=.
-    const lang::ExprNode* pathNode = nullptr;
+    // File path: first positional argument wins if given at all (regardless
+    // of where among call.args it appears); file=/filename= is only a
+    // fallback for when no positional argument was given. This is a
+    // deliberate, order-independent precedence — the alternative (whichever
+    // of a positional/named pair happens to come first in the source) would
+    // silently pick a different file depending on argument order alone.
+    const lang::ExprNode* positional = nullptr;
+    const lang::ExprNode* named      = nullptr;
     for (const auto& arg : call.args) {
-        if (arg.name.empty()) { pathNode = arg.value.get(); break; }
-        if (arg.name == "file" || arg.name == "filename") pathNode = arg.value.get();
+        if (arg.name.empty()) { if (!positional) positional = arg.value.get(); }
+        else if (arg.name == "file" || arg.name == "filename") named = arg.value.get();
     }
+    const lang::ExprNode* pathNode = positional ? positional : named;
     if (!pathNode) {
         reportError("import() requires a file path");
         return nullptr;
@@ -733,11 +740,17 @@ CsgNodePtr CsgEvaluator::evalImport(const ModuleCallNode& call, const glm::mat4&
     if (filePath.is_relative())
         filePath = baseDir / filePath;
 
-    std::string ext = filePath.extension().string();
-    for (char& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    // Match by filename suffix rather than std::filesystem::path::extension()
+    // — the latter treats a file literally named ".stl" (leading dot, no
+    // other dot) as having *no* extension, per the standard's "dotfile" rule.
+    std::string filename = filePath.filename().string();
+    for (char& c : filename) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    const std::string kStlSuffix = ".stl";
+    bool isStl = filename.size() >= kStlSuffix.size() &&
+                 filename.compare(filename.size() - kStlSuffix.size(), kStlSuffix.size(), kStlSuffix) == 0;
 
-    if (ext != ".stl") {
-        reportError("import(): unsupported file format '" + ext +
+    if (!isStl) {
+        reportError("import(): unsupported file format '" + filePath.extension().string() +
                      "' — only .stl is currently supported");
         return nullptr;
     }
