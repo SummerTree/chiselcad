@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include "lang/SourceLoader.h"
 #include "lang/AST.h"
+#include "lang/Interpreter.h"
 #include <filesystem>
 
 using namespace chisel::lang;
@@ -53,6 +54,26 @@ TEST_CASE("SourceLoader:use imports only moduleDefs/functionDefs, not roots or a
     // NOT leak into the using file.
     REQUIRE(loaded.result.assignments.empty());
     REQUIRE(loaded.result.roots.size() == 1); // just main.scad's `thing();`
+}
+
+// ---------------------------------------------------------------------------
+// include<> splices at the directive's textual position, not at the end —
+// a reassignment after the include must still see the included value.
+// ---------------------------------------------------------------------------
+TEST_CASE("SourceLoader:include splices assignments at the directive's position, not the end", "[source-loader][tier-e]") {
+    // main.scad: x = 1; include <order_lib.scad>  (order_lib.scad: x = 2;)
+    //            y = x;
+    // Textual paste would read as: x=1; x=2; y=x; -> x ends at 2, y sees 2.
+    // Appending the include at the end of the vector instead would give
+    // x=1; y=x; x=2; -> y would see x's *old* value (1), which is wrong.
+    auto loaded = loadSource(fixture("order/main.scad"));
+    REQUIRE_FALSE(hasError(loaded.diagnostics));
+    REQUIRE(loaded.result.assignments.size() == 3);
+
+    Interpreter interp;
+    interp.loadAssignments(loaded.result);
+    REQUIRE(interp.getVar("x").asNumber() == 2.0);
+    REQUIRE(interp.getVar("y").asNumber() == 2.0);
 }
 
 // ---------------------------------------------------------------------------

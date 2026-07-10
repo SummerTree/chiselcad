@@ -290,6 +290,15 @@ struct IncludeStmt {
     Kind        kind;
     std::string path; // raw text between '<' and '>', unresolved
     SourceLoc   loc;
+
+    // Snapshot of each destination vector's size (in the *same file's*
+    // ParseResult, before splicing) at the point this directive was parsed,
+    // so SourceLoader can insert the target file's content at the right
+    // textual position instead of always appending it at the end.
+    size_t rootsIndex    = 0;
+    size_t assignIndex   = 0;
+    size_t moduleIndex   = 0;
+    size_t functionIndex = 0;
 };
 
 // ---------------------------------------------------------------------------
@@ -304,6 +313,13 @@ struct ParseResult {
     double globalFn = 0.0;                // $fn if set at file scope (0 = unset)
     double globalFs = 2.0;                // $fs default
     double globalFa = 12.0;              // $fa default
+    // Whether $fn/$fs/$fa were explicitly written in this file, as opposed
+    // to sitting at the language default — lets SourceLoader tell "the
+    // includer explicitly chose the default value" apart from "the includer
+    // never set it" when deciding whether an included file's setting applies.
+    bool globalFnSet = false;
+    bool globalFsSet = false;
+    bool globalFaSet = false;
 };
 
 } // namespace chisel::lang

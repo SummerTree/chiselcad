@@ -111,8 +111,19 @@ std::vector<Token> Lexer::tokenize() {
             // raw-text token, not the general expression grammar, since it
             // may contain characters ('.', '/') that aren't valid tokens.
             if (kind == TokenKind::Include || kind == TokenKind::Use) {
-                while (peek() == ' ' || peek() == '\t' || peek() == '\r' || peek() == '\n')
-                    advance();
+                // Skip whitespace and comments (both are legal here, same as
+                // everywhere else in the grammar) before looking for '<'.
+                for (;;) {
+                    if (peek() == ' ' || peek() == '\t' || peek() == '\r' || peek() == '\n') {
+                        advance();
+                    } else if (peek() == '/' && peek(1) == '/') {
+                        skipLineComment();
+                    } else if (peek() == '/' && peek(1) == '*') {
+                        skipBlockComment();
+                    } else {
+                        break;
+                    }
+                }
                 if (peek() == '<')
                     tokens.push_back(scanAngledPath(static_cast<uint32_t>(m_pos)));
                 // else: no '<' follows — leave it for the parser to report
@@ -348,8 +359,14 @@ Token Lexer::scanAngledPath(uint32_t startOffset) {
     while (!atEnd() && peek() != '>' && peek() != '\n')
         path += advance();
 
-    if (peek() == '>') advance();
-    else addError("unterminated include/use path — expected '>'", {startLine, startCol, startOffset});
+    if (peek() == '>') {
+        advance();
+        if (path.empty())
+            addError("empty include/use path — expected a filename between '<' and '>'",
+                     {startLine, startCol, startOffset});
+    } else {
+        addError("unterminated include/use path — expected '>'", {startLine, startCol, startOffset});
+    }
 
     Token t;
     t.kind       = TokenKind::AngledPath;

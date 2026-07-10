@@ -370,3 +370,29 @@ TEST_CASE("Lexer:unterminated angled path is a lex error", "[lexer][tier-e]") {
     lexer.tokenize();
     REQUIRE(lexer.hasErrors());
 }
+
+TEST_CASE("Lexer:empty angled path is a lex error", "[lexer][tier-e]") {
+    Lexer lexer("include <>");
+    auto tokens = lexer.tokenize();
+    REQUIRE(lexer.hasErrors());
+    // Still emits a (empty-text) AngledPath token so the parser doesn't
+    // additionally report "expected '<path>'" on top of the lexer's error.
+    REQUIRE(tokens[1].kind == TokenKind::AngledPath);
+    REQUIRE(tokens[1].text.empty());
+}
+
+TEST_CASE("Lexer:line comment between include and path is skipped", "[lexer][tier-e]") {
+    auto t = lex("include // why\n<a.scad>");
+    REQUIRE(t.size() == 2);
+    REQUIRE(t[0].kind == TokenKind::Include);
+    REQUIRE(t[1].kind == TokenKind::AngledPath);
+    REQUIRE(t[1].text == "a.scad");
+}
+
+TEST_CASE("Lexer:block comment between use and path is skipped", "[lexer][tier-e]") {
+    auto t = lex("use /* note */ <a.scad>");
+    REQUIRE(t.size() == 2);
+    REQUIRE(t[0].kind == TokenKind::Use);
+    REQUIRE(t[1].kind == TokenKind::AngledPath);
+    REQUIRE(t[1].text == "a.scad");
+}

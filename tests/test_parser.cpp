@@ -688,3 +688,23 @@ TEST_CASE("Parser:include missing path is a parse error", "[parser][tier-e]") {
     parser.parse();
     REQUIRE(parser.hasErrors());
 }
+
+TEST_CASE("Parser:include records position for splicing", "[parser][tier-e]") {
+    auto r = parse("x = 1;\ninclude <lib.scad>\ny = 2;");
+    REQUIRE(r.includes.size() == 1);
+    // One assignment (x=1) existed before the include; the second (y=2)
+    // comes after — SourceLoader relies on this to splice at the right spot.
+    REQUIRE(r.includes[0].assignIndex == 1);
+}
+
+TEST_CASE("Parser:include inside a block is a parse error, not silently dropped", "[parser][tier-e]") {
+    Lexer lexer("union() { include <bar.scad>; cube(1); }");
+    auto tokens = lexer.tokenize();
+    Parser parser(std::move(tokens));
+    auto r = parser.parse();
+    REQUIRE(parser.hasErrors());
+    // The rest of the block still parses: the enclosing union() with its cube().
+    REQUIRE(r.roots.size() == 1);
+    const auto& u = std::get<BooleanNode>(*r.roots[0]);
+    REQUIRE(u.children.size() == 1);
+}
