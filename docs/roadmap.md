@@ -140,7 +140,63 @@
           `PrimitiveGen::resolveSegments()`'s circle-segment formula, since a glyph curve is
           typically a much shorter arc than a full circle.
 
-## v3 — Tooling & Visual Quality
+## v3 — OpenSCAD Language Completeness (final gaps)
+
+v2.5 closed most of the language, but a July 2026 audit against upstream
+OpenSCAD found the README's "not a drop-in replacement" framing had gone
+stale relative to the code — and also found the language isn't *fully*
+there yet either. This tier closes the remaining gaps before any
+drop-in-replacement claim is made externally.
+
+### Parser/semantics gaps — block real-world .scad files
+- [ ] CSG modifier characters `# % ! *` (root/background/disable/debug).
+      `#` isn't even lexable today (`Lexer.cpp` has no case for it, falls
+      through to "unexpected character"); `!`/`%`/`*` tokenize as operators
+      but `Parser::parseNode()` has no case for them as a leading statement
+      modifier. Needs a lexer case for `#`, a parser check for a modifier
+      token before a node, a flag on `AstNode` (or a wrapping node), and
+      `CsgEvaluator` support: `*` skips the subtree entirely, `%` evaluates
+      it but excludes it from boolean results (shown translucent instead),
+      `!` evaluates *only* that subtree and ignores its siblings at the
+      root, `#` evaluates normally but flags it for highlighted preview.
+- [ ] List comprehensions: `[for (i = range) expr]`,
+      `[for (i = range) if (cond) expr]`, and `each` for flattening nested
+      lists. No grammar support at all today — `each` isn't a keyword, and
+      range literals (`[0:5]`) only parse inside a `for(...)` header, not
+      as a general vector-literal expression.
+- [ ] `polyhedron(points=[...], faces=[...])`. Zero references in `src/`
+      today. Can reuse the `CsgLeaf::Kind::Mesh` triangle-soup path already
+      built for `import()` (Tier E) instead of a new IR node.
+- [ ] `resize(newsize, auto=..., convexity=...)`. Needs child geometry
+      evaluated first to get a bounding box, then a scale transform derived
+      from it — data-dependent, unlike the other transforms which are pure
+      accumulate-a-matrix operations.
+- [ ] Module-local variable assignments (`module foo() { x = 5; cube(x); }`).
+      Currently a real bug, not just a missing feature: `Parser.cpp:766-769`
+      parses the assignment and its RHS expression and then **throws both
+      away** ("ignore for now — not scope-captured"), so this class of
+      script silently produces wrong geometry instead of erroring. The
+      scoped-binding machinery already exists for `let(x=10) { children }`
+      (`LetNode`, `AST.h:217`) — module-body assignments need the same kind
+      of scope threaded through a flat statement list (assignment scopes to
+      the rest of the block, OpenSCAD-style) rather than an explicit
+      `{ children }` wrapper, so it's adjacent work, not new infrastructure.
+- [ ] General range-literal expressions (`x = [0:5];` usable anywhere a
+      vector is, not just inside a `for(...)` header).
+- [ ] Nested extrusion (`linear_extrude`/`rotate_extrude` wrapping another
+      extrude) — currently an explicit early-return no-op in
+      `MeshEvaluator.cpp:275`.
+
+### Import/export format coverage
+- [ ] Additional `import()` formats: OFF, 3MF, AMF, DXF, SVG (STL-only
+      today, `Tier E` above).
+- [ ] PNG heightmap support for `surface()` (text `.dat` only today).
+- [ ] Per-file diagnostics for code reached via `include`/`use` — `echo()`/
+      `assert()` messages don't carry the originating file path yet (AST
+      has no per-node file identity), a known caveat repeated three times
+      in the Tier E notes above.
+
+## v4 — Tooling & Visual Quality
 
 - [ ] VS Code LSP extension (syntax highlighting, error squiggles, completions)
 - [ ] AI code assistant panel (Claude API integration)
