@@ -607,7 +607,7 @@ CsgNodePtr CsgEvaluator::evalModuleCall(const ModuleCallNode& call, const glm::m
 
     // Expose $children count and push the children context for children() access
     m_interp->setVar("$children", Value::fromNumber(static_cast<double>(call.children.size())));
-    m_childrenStack.push_back({&call.children, savedEnv});
+    m_childrenStack.push_back({&call.children, &savedEnv});
 
     // Evaluate the module body and collect geometry
     std::vector<CsgNodePtr> all;
@@ -661,7 +661,7 @@ CsgNodePtr CsgEvaluator::evalChildren(const ModuleCallNode& call, const glm::mat
     // (still-active) parameter bindings. Swap to the caller's env for the
     // duration of this evaluation, then restore the callee's env afterward.
     auto calleeEnv = m_interp->snapshotEnv();
-    m_interp->restoreEnv(frame.callerEnv);
+    m_interp->restoreEnv(*frame.callerEnv);
 
     std::vector<CsgNodePtr> all;
 
