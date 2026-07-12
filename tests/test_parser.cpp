@@ -716,3 +716,33 @@ TEST_CASE("Parser:include inside a block is a parse error, not silently dropped"
     const auto& u = std::get<BooleanNode>(*r.roots[0]);
     REQUIRE(u.children.size() == 1);
 }
+
+// ---------------------------------------------------------------------------
+// Diagnostics for otherwise-silent parse gaps
+// ---------------------------------------------------------------------------
+TEST_CASE("Parser:unrecognized top-level statement reports an error", "[parser]") {
+    // A bare identifier not followed by '(' or '=' is not a valid statement
+    // and must not be silently skipped.
+    Lexer lexer("y;");
+    auto tokens = lexer.tokenize();
+    Parser parser(std::move(tokens));
+    auto r = parser.parse();
+    REQUIRE(parser.hasErrors());
+    REQUIRE(r.roots.empty());
+}
+
+TEST_CASE("Parser:numeric token as a named-param name is a parse error", "[parser]") {
+    // `3=5` must not be silently accepted as a named param keyed "3".
+    Lexer lexer("cube(3=5);");
+    auto tokens = lexer.tokenize();
+    Parser parser(std::move(tokens));
+    parser.parse();
+    REQUIRE(parser.hasErrors());
+}
+
+TEST_CASE("Parser:keyword-named param still parses as a named param", "[parser]") {
+    // Regression guard: the numeric-token fix must not break keyword-named
+    // params like 'scale=' (a keyword token, not Number/String).
+    auto r = parse("linear_extrude(height=5, scale=2) square(1);");
+    REQUIRE(r.roots.size() == 1);
+}
