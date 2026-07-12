@@ -117,17 +117,25 @@ void Parser::parseStatement(ParseResult& result) {
 void Parser::parseSpecialVarAssignment(ParseResult& result) {
     const Token& var = advance(); // $fn / $fs / $fa
     expect(TokenKind::Equals, "expected '=' after special variable");
-    // Special vars are always numeric literals in practice
     auto expr = parseExpr();
     match(TokenKind::Semicolon);
 
-    // Evaluate immediately — special vars must be compile-time constants
+    // Fast path: a literal resolves immediately, so SourceLoader's
+    // cross-include merge (mergeGlobalQuality) can see it without needing an
+    // Interpreter.
     if (auto* lit = std::get_if<NumberLit>(expr.get())) {
         if      (var.text == "$fn") { result.globalFn = lit->value; result.globalFnSet = true; }
         else if (var.text == "$fs") { result.globalFs = lit->value; result.globalFsSet = true; }
         else if (var.text == "$fa") { result.globalFa = lit->value; result.globalFaSet = true; }
+        return;
     }
-    // Non-literal $fn/$fs/$fa silently ignored for now (V2b will handle)
+
+    // Non-literal (e.g. `$fn = quality * 4;`) — the Parser has no variable
+    // environment to evaluate this with, so defer it to the Interpreter
+    // exactly like any other variable assignment; CsgEvaluator reads the
+    // resolved value back out of the Interpreter's env once loadAssignments()
+    // has run (see CsgEvaluator::evaluate).
+    result.assignments.push_back({var.text, std::move(expr), var.loc});
 }
 
 void Parser::parseAssignment(ParseResult& result) {
