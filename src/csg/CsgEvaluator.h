@@ -50,6 +50,18 @@ private:
     // Non-owning pointer to the scene being built — valid during evaluate().
     CsgScene* m_scene = nullptr;
 
+    // Guards against unbounded recursion (missing base case, or mutual
+    // recursion between modules) blowing the native call stack. Module-call
+    // stack frames run larger than the Interpreter's function-call frames
+    // (glm::mat4 passed by value, ColorAttr, CsgNodePtr vectors, ...), so
+    // this cap is lower than kMaxCallDepth in Interpreter.h even though both
+    // target the same worst-case 1 MiB MSVC default thread stack — see that
+    // comment for the measurement methodology. Empirically this path
+    // overflowed a 1 MiB stack between depth 500-600 in an unguarded GCC
+    // Release build.
+    static constexpr int kMaxModuleDepth = 100;
+    int m_moduleDepth = 0;
+
     CsgNodePtr evalNode(const chisel::lang::AstNode& node, const glm::mat4& xform, const ColorAttr& color);
     CsgNodePtr evalPrimitive(const chisel::lang::PrimitiveNode& p, const glm::mat4& xform, const ColorAttr& color);
     CsgNodePtr evalBoolean(const chisel::lang::BooleanNode& b, const glm::mat4& xform, const ColorAttr& color);
