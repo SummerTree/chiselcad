@@ -725,3 +725,33 @@ TEST_CASE("Interp:each on a non-list value falls back to a single element", "[in
     REQUIRE(v.asVec()[0].asNumber() == Approx(5.0));
     REQUIRE(v.asVec()[1].asNumber() == Approx(6.0));
 }
+
+// ---------------------------------------------------------------------------
+// Review follow-ups: range equality, and a joint budget across nested
+// list comprehensions (PR #68 review)
+// ---------------------------------------------------------------------------
+TEST_CASE("Interp:two identical range literals compare equal", "[interp][bugfix]") {
+    REQUIRE(bool(evalVal("[0:5] == [0:5]")) == true);
+}
+
+TEST_CASE("Interp:ranges with different bounds/step compare unequal", "[interp][bugfix]") {
+    REQUIRE(bool(evalVal("[0:5] == [0:2:5]")) == false);
+    REQUIRE(bool(evalVal("[0:5] == [0:6]")) == false);
+}
+
+TEST_CASE("Interp:a range is not equal to an expanded vector with the same values", "[interp][bugfix]") {
+    // Different tags -> valEqRec's tag check fails before it even looks at
+    // rangeStart/step/end, matching OpenSCAD treating range and list as
+    // distinct types.
+    REQUIRE(bool(evalVal("[0:2] == [0,1,2]")) == false);
+}
+
+TEST_CASE("Interp:nested list comprehensions share a joint element budget, not each capped independently", "[interp][bugfix]") {
+    // Each range is well within kMaxRangeCount (10000) on its own, so
+    // without a joint budget across nesting levels this would realize
+    // ~1e8 Values (10000*10000). The shared cap must cut it off far short
+    // of completing all outer iterations.
+    Value v = evalVal("[for (i=[0:9999]) [for (j=[0:9999]) i+j]]");
+    REQUIRE(v.isVector());
+    REQUIRE(v.asVec().size() < 10000);
+}

@@ -24,6 +24,8 @@ static bool valEqRec(const Value& a, const Value& b) {
             if (!valEqRec(av[i], bv[i])) return false;
         return true;
     }
+    if (a.isRange())
+        return a.rangeStart == b.rangeStart && a.rangeStep == b.rangeStep && a.rangeEnd == b.rangeEnd;
     return a.isUndef(); // both Undef, since tags already matched
 }
 
@@ -223,13 +225,25 @@ Value Interpreter::evaluate(const ExprNode& expr) {
             Value sourceVal = evaluate(*node.source);
             auto  values    = iterationValues(sourceVal);
 
+            // Only the outermost comprehension in a (possibly nested) chain
+            // resets the shared element budget — a nested one reuses
+            // whatever the outer one has left, so the total across all
+            // nesting levels of this expression stays bounded even though
+            // each range's own kMaxRangeCount cap is per-range, not joint.
+            const bool isOutermost = (m_listCompDepth == 0);
+            if (isOutermost) m_listCompBudget = kMaxListCompElements;
+            ++m_listCompDepth;
+
             auto savedEnv = snapshotEnv();
             std::vector<Value> out;
             for (const Value& v : values) {
+                if (m_listCompBudget <= 0) break;
                 setVar(node.var, v);
                 collectListCompBody(*node.body, out);
             }
             restoreEnv(std::move(savedEnv));
+
+            --m_listCompDepth;
             return Value::fromVec(std::move(out));
         }
 
@@ -350,13 +364,25 @@ void Interpreter::flattenAppend(std::vector<Value>& out, const Value& v) const {
 // ListCompBody in Expr.h for the grammar this mirrors.
 // ---------------------------------------------------------------------------
 void Interpreter::collectListCompBody(const ListCompBody& body, std::vector<Value>& out) {
+    // Checked before evaluating body.expr at all (not just before pushing
+    // the result) since a nested comprehension's expense is in evaluating
+    // it, not in appending its already-computed result.
+    if (m_listCompBudget <= 0) return;
+
     switch (body.kind) {
     case ListCompBody::Kind::Expr:
         out.push_back(evaluate(*body.expr));
+        --m_listCompBudget;
         break;
-    case ListCompBody::Kind::Each:
-        flattenAppend(out, evaluate(*body.expr));
+    case ListCompBody::Kind::Each: {
+        Value v = evaluate(*body.expr);
+        for (auto& e : iterationValues(v)) {
+            if (m_listCompBudget <= 0) break;
+            out.push_back(std::move(e));
+            --m_listCompBudget;
+        }
         break;
+    }
     case ListCompBody::Kind::If:
         if (bool(evaluate(*body.condition)))
             collectListCompBody(*body.thenBody, out);

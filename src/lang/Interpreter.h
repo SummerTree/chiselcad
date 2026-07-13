@@ -73,6 +73,19 @@ private:
     static constexpr int kMaxCallDepth = 200;
     int m_callDepth = 0;
 
+    // Guards against a nested list comprehension's element count multiplying
+    // out of control — each individual range is already capped at
+    // kMaxRangeCount, but that cap is per-range, so
+    // `[for (i=[0:9999]) [for (j=[0:9999]) i+j]]` would otherwise allocate
+    // ~1e8 Values despite neither range exceeding its own cap. m_listCompBudget
+    // is shared across an entire (possibly nested) comprehension expression —
+    // reset only when the outermost one starts (m_listCompDepth == 0) — and
+    // decremented per element actually produced by collectListCompBody, so
+    // the total across all nesting levels of one expression is bounded.
+    static constexpr long long kMaxListCompElements = 1'000'000;
+    long long m_listCompBudget = 0;
+    int       m_listCompDepth  = 0;
+
     Value callBuiltin(const std::string& name,
                       const std::vector<Value>& args) const;
 
@@ -82,8 +95,8 @@ private:
     void flattenAppend(std::vector<Value>& out, const Value& v) const;
 
     // Evaluates one list-comprehension body clause (see ListCompBody in
-    // Expr.h), appending whatever it contributes onto out. Recursive since
-    // if/else/each clauses can nest.
+    // Expr.h), appending whatever it contributes onto out (subject to
+    // m_listCompBudget). Recursive since if/else/each clauses can nest.
     void collectListCompBody(const ListCompBody& body, std::vector<Value>& out);
 };
 
