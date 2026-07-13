@@ -73,6 +73,19 @@ TEST_CASE("CsgEval:non-literal global $fn can reference an earlier variable", "[
     REQUIRE(s.globalFn == Approx(32.0));
 }
 
+// A later literal reassignment must win over an earlier non-literal one —
+// and vice versa — matching plain last-assignment-wins variable semantics
+// regardless of which form (literal vs. expression) each assignment takes.
+TEST_CASE("CsgEval:a later literal $fn reassignment wins over an earlier non-literal one", "[csg][bugfix]") {
+    auto s = evaluate("quality = 1; $fn = quality * 4; $fn = 8;");
+    REQUIRE(s.globalFn == Approx(8.0));
+}
+
+TEST_CASE("CsgEval:a later non-literal $fn reassignment wins over an earlier literal one", "[csg][bugfix]") {
+    auto s = evaluate("quality = 1; $fn = 8; $fn = quality * 4;");
+    REQUIRE(s.globalFn == Approx(4.0));
+}
+
 // ---------------------------------------------------------------------------
 // Primitives produce CsgLeaf nodes
 // ---------------------------------------------------------------------------

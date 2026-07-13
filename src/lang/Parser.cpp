@@ -120,21 +120,31 @@ void Parser::parseSpecialVarAssignment(ParseResult& result) {
     auto expr = parseExpr();
     match(TokenKind::Semicolon);
 
-    // Fast path: a literal resolves immediately, so SourceLoader's
-    // cross-include merge (mergeGlobalQuality) can see it without needing an
-    // Interpreter.
+    // A literal also resolves immediately into globalFn/*Set, so
+    // SourceLoader's cross-include merge (mergeGlobalQuality) can see it
+    // without needing an Interpreter. This is a secondary/legacy view,
+    // though: if the same special var is assigned more than once in one
+    // file (e.g. `$fn = quality*4; $fn = 8;`), only the *last* literal
+    // assignment before this point is reflected here — it is NOT
+    // necessarily the last assignment overall (a later non-literal one
+    // could follow it, or a non-literal one could precede a later literal).
+    // CsgEvaluator ignores this field whenever result.assignments (below)
+    // has a value for the same name, since that always reflects the true
+    // last-assignment-wins order.
     if (auto* lit = std::get_if<NumberLit>(expr.get())) {
         if      (var.text == "$fn") { result.globalFn = lit->value; result.globalFnSet = true; }
         else if (var.text == "$fs") { result.globalFs = lit->value; result.globalFsSet = true; }
         else if (var.text == "$fa") { result.globalFa = lit->value; result.globalFaSet = true; }
-        return;
     }
 
-    // Non-literal (e.g. `$fn = quality * 4;`) — the Parser has no variable
-    // environment to evaluate this with, so defer it to the Interpreter
-    // exactly like any other variable assignment; CsgEvaluator reads the
-    // resolved value back out of the Interpreter's env once loadAssignments()
-    // has run (see CsgEvaluator::evaluate).
+    // Always record the assignment in file order too — exactly like a
+    // normal variable — so the Interpreter (which evaluates
+    // result.assignments in order during loadAssignments()) gives correct
+    // "last assignment wins" semantics when $fn/$fs/$fa is reassigned more
+    // than once with a mix of literal and non-literal expressions. Without
+    // this, a literal assignment followed by a non-literal one (or vice
+    // versa) could have the wrong one win depending on which path
+    // CsgEvaluator happened to read from.
     result.assignments.push_back({var.text, std::move(expr), var.loc});
 }
 

@@ -48,13 +48,16 @@ CsgScene CsgEvaluator::evaluate(const ParseResult& result, Interpreter& interp) 
     CsgScene scene;
     m_scene = &scene;
 
-    // $fn/$fs/$fa: a literal assignment (`$fn = 48;`) is resolved by the
-    // Parser into result.globalFn/*Set. A non-literal assignment
-    // (`$fn = quality * 4;`) is instead pushed onto result.assignments like
-    // any other variable, and loadAssignments() (called by callers before
-    // reaching this function) has already evaluated it into interp's env —
-    // read it back so scene.globalFn reflects whichever path actually set
-    // it, falling back to the parsed literal/default when neither did.
+    // $fn/$fs/$fa: every assignment (literal or not) is pushed onto
+    // result.assignments in file order, same as any other variable, and
+    // loadAssignments() (called by callers before reaching this function)
+    // has already evaluated them in order into interp's env — so reading it
+    // back here gives correct "last assignment wins" semantics even when a
+    // script mixes literal and non-literal reassignments of the same
+    // special var (e.g. `$fn = quality*4; $fn = 8;`). result.globalFn is
+    // only a fallback for the (common) case where the var was never
+    // assigned at all, or only Parser-visible cross-include merging
+    // (SourceLoader::mergeGlobalQuality) applies.
     auto resolveGlobal = [&](const char* name, double parsedVal) {
         Value v = interp.getVar(name);
         return v.isNumber() ? v.asNumber() : parsedVal;
