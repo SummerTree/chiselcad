@@ -16,6 +16,7 @@ struct CsgBoolean;
 struct CsgExtrusion;
 struct CsgOffset;
 struct CsgProjection;
+struct CsgResize;
 
 // ---------------------------------------------------------------------------
 // ColorAttr — the color() attribute in effect at a given point in the tree,
@@ -41,7 +42,7 @@ inline constexpr glm::vec4 kBackgroundColor{0.6f, 0.6f, 0.65f, 1.0f};  // '%' �
 // this node in the AST; the MeshEvaluator applies it after tessellation.
 // ---------------------------------------------------------------------------
 struct CsgLeaf {
-    enum class Kind { Cube, Sphere, Cylinder, Square2D, Circle2D, Polygon2D, Mesh };
+    enum class Kind { Cube, Sphere, Cylinder, Square2D, Circle2D, Polygon2D, Mesh, Polyhedron };
 
     Kind kind = Kind::Cube;
     // Named params carried forward from the parser ("r", "h", "r1", "r2",
@@ -56,18 +57,21 @@ struct CsgLeaf {
     std::vector<glm::vec2>           polyPoints;
     std::vector<std::vector<int>>    polyPaths;
 
-    // Mesh only (import()/surface()) — raw triangle-mesh geometry in local
-    // (file) space; PrimitiveGen hands this straight to Manifold's MeshGL
-    // constructor, which does its own manifold-ness/merge validation.
-    // Vertex-sharing is producer-specific, not a fixed contract of this
-    // field: import() (StlLoader) duplicates a position per triangle vertex,
-    // since STL itself has no shared-vertex indexing, while surface()
-    // (SurfaceLoader) emits a genuinely shared/welded indexed mesh (each
-    // grid point is one position referenced by every triangle that touches
-    // it). Both are valid triangle soups either way. Resolved eagerly by
-    // CsgEvaluator (not deferred to PrimitiveGen) so that a missing file or
-    // a parse failure can surface as a Diagnostic instead of silently
-    // producing empty geometry.
+    // Mesh/Polyhedron only (import()/surface()/polyhedron()) — raw
+    // triangle-mesh geometry in local (file) space; PrimitiveGen hands this
+    // straight to Manifold's MeshGL constructor, which does its own
+    // manifold-ness/merge validation. Vertex-sharing is producer-specific,
+    // not a fixed contract of this field: import() (StlLoader) duplicates a
+    // position per triangle vertex, since STL itself has no shared-vertex
+    // indexing, while surface() (SurfaceLoader) emits a genuinely
+    // shared/welded indexed mesh (each grid point is one position
+    // referenced by every triangle that touches it), and polyhedron() fans
+    // each (assumed planar/convex) face into triangles sharing the
+    // caller-supplied point indices. All are valid triangle soups either
+    // way. Resolved eagerly by CsgEvaluator (not deferred to PrimitiveGen)
+    // so that a missing file, a parse failure, or a malformed points/faces
+    // argument can surface as a Diagnostic instead of silently producing
+    // empty geometry.
     std::vector<glm::vec3> meshPositions;
     std::vector<uint32_t>  meshIndices;
 };
@@ -75,7 +79,7 @@ struct CsgLeaf {
 // ---------------------------------------------------------------------------
 // CsgNode — the CSG IR variant
 // ---------------------------------------------------------------------------
-using CsgNode    = std::variant<CsgLeaf, CsgBoolean, CsgExtrusion, CsgOffset, CsgProjection>;
+using CsgNode    = std::variant<CsgLeaf, CsgBoolean, CsgExtrusion, CsgOffset, CsgProjection, CsgResize>;
 using CsgNodePtr = std::shared_ptr<CsgNode>;
 
 struct CsgBoolean {
@@ -145,6 +149,25 @@ struct CsgProjection {
 };
 
 // ---------------------------------------------------------------------------
+// CsgResize — resize(newsize=[x,y,z], auto=...) in the CSG IR. Unlike
+// scale() (folded into a leaf's transform at AST-evaluation time), resize's
+// scale factor depends on the tessellated bounding box of its children,
+// which only exists once MeshEvaluator has built an actual Manifold — see
+// MeshEvaluator::evalResize(). Children are unioned and evaluated in local
+// space first (matching Hull/Minkowski/Offset/Projection's treatment), with
+// the outer transform applied once to the final resized result.
+// ---------------------------------------------------------------------------
+struct CsgResize {
+    // Target size per axis; 0 means "leave this axis at its current extent"
+    // unless the matching auto flag below is set.
+    double newX = 0.0, newY = 0.0, newZ = 0.0;
+    bool autoX = false, autoY = false, autoZ = false;
+    std::vector<CsgNodePtr> children;
+    glm::mat4 transform{1.0f};
+    ColorAttr color;
+};
+
+// ---------------------------------------------------------------------------
 // Factory helpers
 // ---------------------------------------------------------------------------
 inline CsgNodePtr makeLeaf(CsgLeaf leaf) {
@@ -161,6 +184,9 @@ inline CsgNodePtr makeOffset(CsgOffset o) {
 }
 inline CsgNodePtr makeProjection(CsgProjection p) {
     return std::make_shared<CsgNode>(std::move(p));
+}
+inline CsgNodePtr makeResize(CsgResize r) {
+    return std::make_shared<CsgNode>(std::move(r));
 }
 
 // The ColorAttr in effect at the top of this node's subtree (whichever

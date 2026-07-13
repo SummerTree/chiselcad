@@ -69,25 +69,26 @@ difference() {
 
 | Category | Supported |
 |---|---|
-| Primitives (3D) | `cube`, `sphere`, `cylinder` |
+| Primitives (3D) | `cube`, `sphere`, `cylinder`, `polyhedron()` |
 | Primitives (2D) | `square`, `circle`, `polygon`, `text()` |
 | Booleans / CSG | `union()`, `difference()`, `intersection()`, `hull()`, `minkowski()` |
-| Transforms | `translate()`, `rotate()`, `scale()`, `mirror()`, `multmatrix()`, `color()` |
-| Control flow | `for`, `if`/`else`, `let`, ternary `?:`, ranges in `for` |
+| Transforms | `translate()`, `rotate()`, `scale()`, `mirror()`, `multmatrix()`, `color()`, `resize()` |
+| CSG modifiers | `#` (highlight), `%` (background), `!` (root), `*` (disable) |
+| Control flow | `for`, `if`/`else`, `let`, ternary `?:`, ranges (`[a:b]`/`[a:b:c]`), list comprehensions |
 | Functions & modules | user-defined `function`/`module`, `children()`/`$children`, named + default args |
 | Built-ins | full math set, string/vector helpers (`concat`, `str`, `len`, `lookup`, `rands`, ...) |
-| 2D → 3D | `linear_extrude`, `rotate_extrude`, `offset()`, `projection()` |
+| 2D → 3D | `linear_extrude`, `rotate_extrude` (including nested extrusion), `offset()`, `projection()` |
 | File I/O | `include <>`, `use <>`, `import()` (STL), `surface()` (text `.dat`) |
 | Diagnostics | `echo()`, `assert()` |
 | Quality | `$fn`, `$fs`, `$fa` (global and per-node) |
 | Export | Binary STL |
 
-**Known gaps** (tracked as [docs/roadmap.md](docs/roadmap.md) v3): CSG modifier
-characters `# % ! *`, list comprehensions and `each`, `polyhedron()`,
-`resize()`, general range-literal expressions outside `for`, nested
-extrusion, and import/export formats beyond STL. See the roadmap for details
-and the [issue tracker](https://github.com/particlesector/chiselcad/issues)
-for known correctness bugs currently being fixed.
+**Known gaps** (tracked as [docs/roadmap.md](docs/roadmap.md) v3 Phase 4):
+per-file diagnostics for code reached via `include`/`use`, PNG heightmap
+support for `surface()`, and import/export formats beyond STL (OFF, 3MF,
+AMF, DXF, SVG). See the roadmap for details and the
+[issue tracker](https://github.com/particlesector/chiselcad/issues) for
+known correctness bugs currently being fixed.
 
 ---
 

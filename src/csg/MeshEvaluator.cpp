@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <functional>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -84,8 +85,12 @@ static std::string leafKey(const CsgLeaf& leaf, const PrimitiveGen& gen) {
         break;
     }
 
-    case CsgLeaf::Kind::Mesh: {
-        k += "mesh:";
+    // Mesh (import()/surface()) and Polyhedron (polyhedron()) carry their
+    // actual geometry outside `params` too — same rationale as Polygon2D
+    // above, just distinct label prefixes so two builtins can't collide.
+    case CsgLeaf::Kind::Mesh:
+    case CsgLeaf::Kind::Polyhedron: {
+        k += (leaf.kind == CsgLeaf::Kind::Mesh) ? "mesh:" : "polyhedron:";
         std::size_t h = 0;
         for (const auto& pos : leaf.meshPositions) {
             hashCombine(h, std::hash<float>{}(pos.x));
@@ -172,8 +177,9 @@ static const char* leafKindName(CsgLeaf::Kind k) {
     case CsgLeaf::Kind::Cylinder:  return "cylinder()";
     case CsgLeaf::Kind::Square2D:  return "square()";
     case CsgLeaf::Kind::Circle2D:  return "circle()";
-    case CsgLeaf::Kind::Polygon2D: return "polygon()";
-    case CsgLeaf::Kind::Mesh:      return "import()/surface()";
+    case CsgLeaf::Kind::Polygon2D:  return "polygon()";
+    case CsgLeaf::Kind::Mesh:       return "import()/surface()";
+    case CsgLeaf::Kind::Polyhedron: return "polyhedron()";
     }
     return "leaf";
 }
@@ -235,6 +241,8 @@ manifold::Manifold MeshEvaluator::evalNode(const CsgNode& node, const PrimitiveG
             return evalBoolean(n, gen);
         else if constexpr (std::is_same_v<T, CsgExtrusion>)
             return evalExtrusion(n, gen);
+        else if constexpr (std::is_same_v<T, CsgResize>)
+            return evalResize(n, gen);
         else
             return {}; // CsgOffset/CsgProjection: 2-D only, no 3-D representation unless extruded
     }, node);
@@ -353,16 +361,26 @@ manifold::CrossSection MeshEvaluator::getChildCrossSection(const CsgNode& node,
             auto cs = polys.empty() ? manifold::CrossSection{}
                                     : manifold::CrossSection(polys, manifold::CrossSection::FillRule::EvenOdd);
             return apply2DTransform(cs, n.transform);
+        } else if constexpr (std::is_same_v<T, CsgExtrusion>) {
+            // Nested extrusion (e.g. linear_extrude() rotate_extrude()
+            // square(); ...) — realize the inner extrusion to its actual
+            // 3-D solid (evalExtrusion() already bakes that node's own
+            // transform into it), then flatten it to a silhouette exactly
+            // like CsgProjection's cut=false case above, so the outer
+            // extrude re-extrudes a well-defined 2-D shape instead of the
+            // geometry being silently dropped.
+            manifold::Manifold inner = evalExtrusion(n, gen);
+            manifold::Polygons polys = inner.Project();
+            return polys.empty() ? manifold::CrossSection{}
+                                 : manifold::CrossSection(polys, manifold::CrossSection::FillRule::EvenOdd);
         } else {
-            // Nested extrusion (e.g. linear_extrude() rotate_extrude() ...)
-            // is not currently supported. Flag it explicitly rather than
-            // silently returning empty geometry, so the caller sees a
-            // Diagnostic instead of unexplained missing output.
+            // CsgResize: 3-D only, no 2-D representation. Flag it explicitly
+            // rather than silently returning empty geometry.
             chisel::lang::Diagnostic d;
             d.level   = chisel::lang::DiagLevel::Error;
-            d.message = "nested extrusion (a linear_extrude()/rotate_extrude() "
-                        "inside another extrude) is not supported; its geometry "
-                        "was skipped";
+            d.message = "resize() has no 2-D representation and can't be used "
+                        "inside an extrude/offset/projection; its geometry was "
+                        "skipped";
             m_diags.push_back(std::move(d));
             return {};
         }
@@ -454,6 +472,63 @@ manifold::Manifold MeshEvaluator::evalExtrusion(const CsgExtrusion& e,
 
     return checkStatus(std::move(result),
                         e.kind == CsgExtrusion::Kind::Linear ? "linear_extrude()" : "rotate_extrude()");
+}
+
+// ---------------------------------------------------------------------------
+// evalResize — union the children, measure their bounding box, and scale to
+// match newsize (see CsgResize's doc comment in CsgNode.h for why this can't
+// be resolved at CsgEvaluator time the way scale() is).
+// ---------------------------------------------------------------------------
+manifold::Manifold MeshEvaluator::evalResize(const CsgResize& r, const PrimitiveGen& gen) {
+    if (r.children.empty()) return {};
+
+    manifold::Manifold result = evalNode(*r.children[0], gen);
+    for (std::size_t i = 1; i < r.children.size(); ++i)
+        result = result + evalNode(*r.children[i], gen);
+
+    manifold::Box box = result.BoundingBox();
+    const double extentX = static_cast<double>(box.max.x - box.min.x);
+    const double extentY = static_cast<double>(box.max.y - box.min.y);
+    const double extentZ = static_cast<double>(box.max.z - box.min.z);
+
+    // An axis is "explicitly resized" when newsize for it is non-zero and
+    // the current extent is non-degenerate; anything else defaults to an
+    // unchanged (1.0) scale unless auto= kicks in below.
+    auto explicitScale = [](double newsize, double extent) -> std::optional<double> {
+        if (newsize == 0.0 || extent <= 1e-9) return std::nullopt;
+        return newsize / extent;
+    };
+    std::optional<double> sxExplicit = explicitScale(r.newX, extentX);
+    std::optional<double> syExplicit = explicitScale(r.newY, extentY);
+    std::optional<double> szExplicit = explicitScale(r.newZ, extentZ);
+
+    // OpenSCAD's auto=: an axis with newsize 0 and auto=true scales by the
+    // largest explicit scale factor among the OTHER axes, so the shape
+    // grows/shrinks proportionally along that axis instead of staying put;
+    // falls back to 1 (unchanged) if no axis was explicitly resized.
+    double maxExplicit = 1.0;
+    bool haveExplicit = false;
+    for (auto s : {sxExplicit, syExplicit, szExplicit}) {
+        if (!s) continue;
+        maxExplicit = haveExplicit ? std::max(maxExplicit, *s) : *s;
+        haveExplicit = true;
+    }
+
+    auto resolveAxis = [&](std::optional<double> explicitS, bool autoFlag) -> double {
+        if (explicitS) return *explicitS;
+        return autoFlag ? maxExplicit : 1.0;
+    };
+
+    const double sx = resolveAxis(sxExplicit, r.autoX);
+    const double sy = resolveAxis(syExplicit, r.autoY);
+    const double sz = resolveAxis(szExplicit, r.autoZ);
+
+    result = result.Scale({static_cast<float>(sx), static_cast<float>(sy), static_cast<float>(sz)});
+
+    if (r.transform != glm::mat4{1.0f})
+        result = result.Transform(toAffine(r.transform));
+
+    return checkStatus(std::move(result), "resize()");
 }
 
 } // namespace chisel::csg
