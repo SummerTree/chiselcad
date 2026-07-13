@@ -944,6 +944,16 @@ TEST_CASE("CsgEval:echo formats a range literal as [start:step:end], not an expa
     REQUIRE(s.echoMessages[0].find("[0:2:10]") != std::string::npos);
 }
 
+TEST_CASE("CsgEval:list comprehension builds polygon() points end-to-end", "[csg][bugfix]") {
+    auto s = evaluate("polygon(points=[for (i = [0:3]) [i, i * 2]]);");
+    REQUIRE(s.roots.size() == 1);
+    const auto& leaf = asLeaf(s.roots[0]);
+    REQUIRE(leaf.kind == CsgLeaf::Kind::Polygon2D);
+    REQUIRE(leaf.polyPoints.size() == 4);
+    REQUIRE(leaf.polyPoints[2].x == Approx(2.0f));
+    REQUIRE(leaf.polyPoints[2].y == Approx(4.0f));
+}
+
 TEST_CASE("CsgEval:for over a variable holding a range literal expands it", "[csg][bugfix]") {
     auto s = evaluate(
         "r = [0:2];"

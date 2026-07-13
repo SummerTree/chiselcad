@@ -488,13 +488,7 @@ CsgNodePtr CsgEvaluator::evalFor(const ForNode& node, const glm::mat4& xform, co
         // `for (pt = pts)` iterates over pts' elements.
         for (const auto& e : node.range.list) {
             Value v = m_interp->evaluate(*e);
-            if (v.isVector())
-                for (const auto& elem : v.asVec()) values.push_back(elem);
-            else if (v.isRange())
-                for (auto& elem : m_interp->expandRange(v.rangeStart, v.rangeStep, v.rangeEnd))
-                    values.push_back(std::move(elem));
-            else
-                values.push_back(std::move(v));
+            for (auto& elem : m_interp->iterationValues(v)) values.push_back(std::move(elem));
         }
     }
 

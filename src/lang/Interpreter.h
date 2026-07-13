@@ -43,6 +43,14 @@ public:
     static constexpr int kMaxRangeCount = 10000;
     std::vector<Value> expandRange(double start, double step, double end) const;
 
+    // Expands a value into the sequence of per-iteration values a for-loop
+    // or list-comprehension for-clause visits for it: a Range expands via
+    // expandRange(); a Vector iterates its own elements (`for (p = pts)`
+    // visits each element of pts); anything else is a single iteration of
+    // that value unchanged. Shared by CsgEvaluator::evalFor's expression
+    // form and ListCompExpr below.
+    std::vector<Value> iterationValues(const Value& v) const;
+
     // Environment snapshot/restore for scoping.
     std::unordered_map<std::string, Value> snapshotEnv() const { return m_env; }
     void restoreEnv(std::unordered_map<std::string, Value> env) { m_env = std::move(env); }
@@ -67,6 +75,16 @@ private:
 
     Value callBuiltin(const std::string& name,
                       const std::vector<Value>& args) const;
+
+    // Appends v's per-iteration values (see iterationValues()) onto out —
+    // used by `each` in both a plain list literal and a list-comprehension
+    // body.
+    void flattenAppend(std::vector<Value>& out, const Value& v) const;
+
+    // Evaluates one list-comprehension body clause (see ListCompBody in
+    // Expr.h), appending whatever it contributes onto out. Recursive since
+    // if/else/each clauses can nest.
+    void collectListCompBody(const ListCompBody& body, std::vector<Value>& out);
 };
 
 } // namespace chisel::lang

@@ -18,7 +18,7 @@ static double paramVal(const PrimitiveNode& p, const std::string& name) {
 static double vecComp(const TransformNode& t, int i) {
     Interpreter interp;
     const auto& vlit = std::get<VectorLit>(*t.vec);
-    return interp.evalNumber(*vlit.elements[static_cast<std::size_t>(i)]);
+    return interp.evalNumber(*vlit.elements[static_cast<std::size_t>(i)].value);
 }
 
 // Helper: lex + parse, assert no errors, return result
@@ -496,6 +496,57 @@ TEST_CASE("Parser:range literal as a function argument", "[parser]") {
     const auto& call = std::get<ModuleCallNode>(*r.roots[0]);
     REQUIRE(call.args.size() == 1);
     REQUIRE(std::holds_alternative<RangeLit>(*call.args[0].value));
+}
+
+// ---------------------------------------------------------------------------
+// List comprehensions and `each`
+// ---------------------------------------------------------------------------
+TEST_CASE("Parser:basic list comprehension", "[parser]") {
+    auto r = parse("x = [for (i = [0:3]) i * 2];");
+    REQUIRE(r.assignments.size() == 1);
+    const auto& comp = std::get<ListCompExpr>(*r.assignments[0].value);
+    REQUIRE(comp.var == "i");
+    REQUIRE(std::holds_alternative<RangeLit>(*comp.source));
+    REQUIRE(comp.body->kind == ListCompBody::Kind::Expr);
+}
+
+TEST_CASE("Parser:list comprehension with if filter", "[parser]") {
+    auto r = parse("x = [for (i = [0:5]) if (i % 2 == 0) i];");
+    REQUIRE(r.assignments.size() == 1);
+    const auto& comp = std::get<ListCompExpr>(*r.assignments[0].value);
+    REQUIRE(comp.body->kind == ListCompBody::Kind::If);
+    REQUIRE(comp.body->thenBody->kind == ListCompBody::Kind::Expr);
+    REQUIRE(comp.body->elseBody == nullptr);
+}
+
+TEST_CASE("Parser:list comprehension with if/else", "[parser]") {
+    auto r = parse("x = [for (i = [0:5]) if (i % 2 == 0) i else -i];");
+    const auto& comp = std::get<ListCompExpr>(*r.assignments[0].value);
+    REQUIRE(comp.body->kind == ListCompBody::Kind::If);
+    REQUIRE(comp.body->elseBody != nullptr);
+    REQUIRE(comp.body->elseBody->kind == ListCompBody::Kind::Expr);
+}
+
+TEST_CASE("Parser:list comprehension with each in the body", "[parser]") {
+    auto r = parse("x = [for (i = [0:2]) each [i, i]];");
+    const auto& comp = std::get<ListCompExpr>(*r.assignments[0].value);
+    REQUIRE(comp.body->kind == ListCompBody::Kind::Each);
+}
+
+TEST_CASE("Parser:each as a plain list element", "[parser]") {
+    auto r = parse("x = [each [1, 2], 3];");
+    REQUIRE(r.assignments.size() == 1);
+    const auto& vlit = std::get<VectorLit>(*r.assignments[0].value);
+    REQUIRE(vlit.elements.size() == 2);
+    REQUIRE(vlit.elements[0].isEach == true);
+    REQUIRE(vlit.elements[1].isEach == false);
+}
+
+TEST_CASE("Parser:a plain vector element defaults to isEach = false", "[parser]") {
+    auto r = parse("x = [1, 2, 3];");
+    const auto& vlit = std::get<VectorLit>(*r.assignments[0].value);
+    for (const auto& elem : vlit.elements)
+        REQUIRE(elem.isEach == false);
 }
 
 // ---------------------------------------------------------------------------

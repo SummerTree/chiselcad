@@ -60,7 +60,9 @@ private:
     ExprPtr parsePostfix();     // handles postfix [idx] after primary
     ExprPtr parsePrimary();
     ExprPtr parseLetExpr();
-    ExprPtr parseVecExpr();     // parse [x, y, z] → VectorLit ExprPtr
+    VectorElem parseVectorElem();           // one list element: expr, or `each expr`
+    ExprPtr parseListComp(SourceLoc loc);   // [for (var = source) body]
+    ListCompBodyPtr parseListCompBody();    // body clause: expr / each expr / if (..) body [else body]
 
     // ---- argument helpers ------------------------------------------------
     void parseParamList(std::unordered_map<std::string, ExprPtr>& params,

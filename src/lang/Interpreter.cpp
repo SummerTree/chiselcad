@@ -63,8 +63,11 @@ Value Interpreter::evaluate(const ExprNode& expr) {
         else if constexpr (std::is_same_v<T, VectorLit>) {
             std::vector<Value> elems;
             elems.reserve(node.elements.size());
-            for (const auto& e : node.elements)
-                elems.push_back(evaluate(*e));
+            for (const auto& e : node.elements) {
+                Value v = evaluate(*e.value);
+                if (e.isEach) flattenAppend(elems, v);
+                else          elems.push_back(std::move(v));
+            }
             return Value::fromVec(std::move(elems));
         }
 
@@ -215,6 +218,21 @@ Value Interpreter::evaluate(const ExprNode& expr) {
             return Value::fromRange(start, step, end);
         }
 
+        // ---- List comprehension: [for (var = source) body] ----
+        else if constexpr (std::is_same_v<T, ListCompExpr>) {
+            Value sourceVal = evaluate(*node.source);
+            auto  values    = iterationValues(sourceVal);
+
+            auto savedEnv = snapshotEnv();
+            std::vector<Value> out;
+            for (const Value& v : values) {
+                setVar(node.var, v);
+                collectListCompBody(*node.body, out);
+            }
+            restoreEnv(std::move(savedEnv));
+            return Value::fromVec(std::move(out));
+        }
+
         // ---- Function call ----
         else if constexpr (std::is_same_v<T, FunctionCall>) {
             // Collect positional and named argument values
@@ -312,6 +330,40 @@ std::vector<Value> Interpreter::expandRange(double start, double step, double en
         for (double v = start; v >= end - 1e-10 && static_cast<int>(values.size()) < kMaxRangeCount; v += step)
             values.push_back(Value::fromNumber(v));
     return values;
+}
+
+// ---------------------------------------------------------------------------
+// iterationValues / flattenAppend — see Interpreter.h
+// ---------------------------------------------------------------------------
+std::vector<Value> Interpreter::iterationValues(const Value& v) const {
+    if (v.isVector()) return v.asVec();
+    if (v.isRange())  return expandRange(v.rangeStart, v.rangeStep, v.rangeEnd);
+    return {v};
+}
+
+void Interpreter::flattenAppend(std::vector<Value>& out, const Value& v) const {
+    for (auto& e : iterationValues(v)) out.push_back(std::move(e));
+}
+
+// ---------------------------------------------------------------------------
+// collectListCompBody — one list-comprehension body clause; see
+// ListCompBody in Expr.h for the grammar this mirrors.
+// ---------------------------------------------------------------------------
+void Interpreter::collectListCompBody(const ListCompBody& body, std::vector<Value>& out) {
+    switch (body.kind) {
+    case ListCompBody::Kind::Expr:
+        out.push_back(evaluate(*body.expr));
+        break;
+    case ListCompBody::Kind::Each:
+        flattenAppend(out, evaluate(*body.expr));
+        break;
+    case ListCompBody::Kind::If:
+        if (bool(evaluate(*body.condition)))
+            collectListCompBody(*body.thenBody, out);
+        else if (body.elseBody)
+            collectListCompBody(*body.elseBody, out);
+        break;
+    }
 }
 
 // ---------------------------------------------------------------------------

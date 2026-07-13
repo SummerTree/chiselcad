@@ -510,35 +510,6 @@ AstNodePtr Parser::parseFor() {
 }
 
 // ---------------------------------------------------------------------------
-// parseVecExpr — parse a [x, y, z] literal into a VectorLit ExprPtr
-// ---------------------------------------------------------------------------
-ExprPtr Parser::parseVecExpr() {
-    SourceLoc loc = peek().loc;
-    if (!match(TokenKind::LBracket)) {
-        addError("expected '[' for vector argument", peek().loc);
-        VectorLit vlit;
-        vlit.loc = loc;
-        for (int i = 0; i < 3; ++i)
-            vlit.elements.push_back(makeExpr(NumberLit{0.0, loc}));
-        return makeExpr(std::move(vlit));
-    }
-
-    VectorLit vlit;
-    vlit.loc = loc;
-    for (int i = 0; i < 3; ++i) {
-        if (check(TokenKind::RBracket)) {
-            // Fewer than 3 components — fill rest with 0
-            vlit.elements.push_back(makeExpr(NumberLit{0.0, peek().loc}));
-            continue;
-        }
-        vlit.elements.push_back(parseExpr());
-        if (i < 2) match(TokenKind::Comma);
-    }
-    expect(TokenKind::RBracket, "expected ']' after vector");
-    return makeExpr(std::move(vlit));
-}
-
-// ---------------------------------------------------------------------------
 // parseParamList — named and positional params → ExprPtr map + center flag
 // ---------------------------------------------------------------------------
 void Parser::parseParamList(std::unordered_map<std::string, ExprPtr>& params,
@@ -749,7 +720,8 @@ ExprPtr Parser::parsePrimary() {
         expect(TokenKind::RParen, "expected ')'");
         return expr;
     }
-    // Vector literal [e0, e1, ...] or range literal [start:end] / [start:step:end]
+    // Vector literal [e0, e1, ...], range literal [start:end]/[start:step:end],
+    // or list comprehension [for (var = source) body].
     if (check(TokenKind::LBracket)) {
         SourceLoc loc = advance().loc; // consume [
 
@@ -760,9 +732,15 @@ ExprPtr Parser::parsePrimary() {
             return makeExpr(std::move(vlit));
         }
 
-        auto first = parseExpr();
+        if (check(TokenKind::For))
+            return parseListComp(loc);
 
-        if (check(TokenKind::Colon)) {
+        // A leading `each` can only start a list element, not a range
+        // (`[each x : y]` isn't meaningful), so only try the range form
+        // when the first element wasn't `each`.
+        VectorElem firstElem = parseVectorElem();
+
+        if (!firstElem.isEach && check(TokenKind::Colon)) {
             // Range literal — same grammar as a `for` header's range form,
             // but usable as a general expression (see RangeLit in Expr.h).
             advance(); // consume ':'
@@ -771,11 +749,11 @@ ExprPtr Parser::parsePrimary() {
             range.loc = loc;
             if (check(TokenKind::Colon)) {
                 advance(); // consume ':'
-                range.start = std::move(first);
+                range.start = std::move(firstElem.value);
                 range.step  = std::move(second);
                 range.end   = parseExpr();
             } else {
-                range.start = std::move(first);
+                range.start = std::move(firstElem.value);
                 range.end   = std::move(second);
             }
             expect(TokenKind::RBracket, "expected ']' after range");
@@ -784,10 +762,10 @@ ExprPtr Parser::parsePrimary() {
 
         VectorLit vlit;
         vlit.loc = loc;
-        vlit.elements.push_back(std::move(first));
+        vlit.elements.push_back(std::move(firstElem));
         while (match(TokenKind::Comma)) {
             if (check(TokenKind::RBracket)) break;
-            vlit.elements.push_back(parseExpr());
+            vlit.elements.push_back(parseVectorElem());
         }
         expect(TokenKind::RBracket, "expected ']'");
         return makeExpr(std::move(vlit));
@@ -921,6 +899,75 @@ ExprPtr Parser::parseLetExpr() {
 
     expr.body = parseExpr();
     return makeExpr(std::move(expr));
+}
+
+// ---------------------------------------------------------------------------
+// parseVectorElem — one element of a vector/list literal: `expr` or
+// `each expr` (the latter flattens expr's own elements into the list).
+// ---------------------------------------------------------------------------
+VectorElem Parser::parseVectorElem() {
+    if (check(TokenKind::Each)) {
+        advance(); // consume 'each'
+        return VectorElem{parseExpr(), true};
+    }
+    return VectorElem{parseExpr(), false};
+}
+
+// ---------------------------------------------------------------------------
+// List comprehension — [for (var = source) body]. The leading '[' and the
+// 'for' keyword have already been confirmed present (not yet consumed for
+// 'for') by the caller; this owns everything through the closing ']'.
+// ---------------------------------------------------------------------------
+ExprPtr Parser::parseListComp(SourceLoc loc) {
+    advance(); // consume 'for'
+    expect(TokenKind::LParen, "expected '(' after 'for'");
+    std::string var = expect(TokenKind::Ident, "expected loop variable").text;
+    expect(TokenKind::Equals, "expected '=' after loop variable");
+    auto source = parseExpr();
+    expect(TokenKind::RParen, "expected ')' after for-clause");
+
+    ListCompExpr comp;
+    comp.var    = std::move(var);
+    comp.source = std::move(source);
+    comp.loc    = loc;
+    comp.body   = parseListCompBody();
+
+    expect(TokenKind::RBracket, "expected ']' after list comprehension");
+    return makeExpr(std::move(comp));
+}
+
+// ---------------------------------------------------------------------------
+// parseListCompBody — one body clause of a list comprehension:
+//   expr | each expr | if (cond) body [else body]
+// Recursive so if/else/each can nest (e.g. `if (cond) each a else b`).
+// ---------------------------------------------------------------------------
+ListCompBodyPtr Parser::parseListCompBody() {
+    auto body = std::make_unique<ListCompBody>();
+
+    if (check(TokenKind::If)) {
+        advance(); // consume 'if'
+        expect(TokenKind::LParen, "expected '(' after 'if'");
+        body->kind      = ListCompBody::Kind::If;
+        body->condition = parseExpr();
+        expect(TokenKind::RParen, "expected ')' after if-condition");
+        body->thenBody = parseListCompBody();
+        if (check(TokenKind::Else)) {
+            advance(); // consume 'else'
+            body->elseBody = parseListCompBody();
+        }
+        return body;
+    }
+
+    if (check(TokenKind::Each)) {
+        advance(); // consume 'each'
+        body->kind = ListCompBody::Kind::Each;
+        body->expr = parseExpr();
+        return body;
+    }
+
+    body->kind = ListCompBody::Kind::Expr;
+    body->expr = parseExpr();
+    return body;
 }
 
 // ---------------------------------------------------------------------------
