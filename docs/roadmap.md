@@ -49,10 +49,10 @@ lower-risk debug/parser ergonomics, then the remaining geometry primitives
 close out with import/export breadth, which is additive and blocks nothing
 else.
 
-### Phase 1 — Correctness bug + core expression language
-- [ ] Module-local variable assignments — currently parsed and silently discarded, a real bug
-- [ ] General range-literal expressions (`x = [0:5];` outside `for`)
-- [ ] List comprehensions (`[for (i=range) expr]`, with `if`) and `each` (depends on range literals above)
+### Phase 1 — Correctness bug + core expression language ✓
+- [x] Module-local variable assignments — currently parsed and silently discarded, a real bug
+- [x] General range-literal expressions (`x = [0:5];` outside `for`)
+- [x] List comprehensions (`[for (i=range) expr]`, with `if`) and `each` (depends on range literals above)
 
 ### Phase 2 — Parser/debug ergonomics
 - [ ] CSG modifier characters `# % ! *` (root/background/disable/debug)
