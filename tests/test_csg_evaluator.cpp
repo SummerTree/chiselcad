@@ -1666,7 +1666,16 @@ TEST_CASE(
     "[csg][tier-e]") {
     auto s = evaluateFile(fixture("eval_diag/main.scad"));
     REQUIRE_FALSE(s.evalDiags.empty());
-    REQUIRE(s.evalDiags[0].filePath == fixture("eval_diag/child.scad").string());
+    // Compare as std::filesystem::path, not as raw strings: the actual
+    // filePath is built by SourceLoader joining a non-slash-terminated
+    // parent_path() with a bare "child.scad" (inserting the platform's
+    // preferred_separator — a backslash on Windows), while fixture() joins
+    // a single already-slash-separated "eval_diag/child.scad" string onto
+    // an already-slash-terminated base (inserting nothing) — both name the
+    // same file, but their .string() forms can differ by separator
+    // character on Windows even though path::operator== correctly treats
+    // them as equal (it compares parsed path components, not raw bytes).
+    REQUIRE(std::filesystem::path(s.evalDiags[0].filePath) == fixture("eval_diag/child.scad"));
     REQUIRE(s.evalDiags[0].loc.line == 0); // assert() is child.scad's first line
     REQUIRE(s.evalDiags[0].message.find("boom") != std::string::npos);
 }
