@@ -109,6 +109,8 @@ private:
     CsgNodePtr evalImport(const chisel::lang::ModuleCallNode& call, const glm::mat4& xform, const ColorAttr& color);
     CsgNodePtr evalSurface(const chisel::lang::ModuleCallNode& call, const glm::mat4& xform, const ColorAttr& color);
     CsgNodePtr evalText(const chisel::lang::ModuleCallNode& call, const glm::mat4& xform, const ColorAttr& color);
+    CsgNodePtr evalPolyhedron(const chisel::lang::ModuleCallNode& call, const glm::mat4& xform, const ColorAttr& color);
+    CsgNodePtr evalResize(const chisel::lang::ModuleCallNode& call, const glm::mat4& xform, const ColorAttr& color);
 
     // Shared by evalImport()/evalSurface(): pushes an error Diagnostic (if a
     // scene is being built) at the given source location.

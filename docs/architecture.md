@@ -179,25 +179,24 @@ uses it — it isn't in `vcpkg.json` and there's no `find_package(embree3)` in
 
 ### 5.1 Supported Syntax
 
-- Primitives (3D): `cube`, `sphere`, `cylinder`
+- Primitives (3D): `cube`, `sphere`, `cylinder`, `polyhedron()`
 - Primitives (2D): `square`, `circle`, `polygon`, `text()`
 - Booleans/CSG: `union()`, `difference()`, `intersection()`, `hull()`, `minkowski()`
-- Transforms: `translate()`, `rotate()`, `scale()`, `mirror()`, `multmatrix()`, `color()`, `render()`
+- Transforms: `translate()`, `rotate()`, `scale()`, `mirror()`, `multmatrix()`, `color()`, `render()`, `resize()`
 - CSG modifier characters: `#` (highlight), `%` (background), `*` (disable), `!` (root) — see §6
 - Control flow: `for` (with ranges), `if`/`else`, statement- and expression-level `let`, ternary `?:`, list comprehensions (`[for (i=range) expr]`, with `if`/`each`)
 - Functions & modules: user-defined `function`/`module`, `children()`/`$children`, named + default args, recursion
 - Built-ins: full math set, string/vector helpers (`concat`, `str`, `chr`, `ord`, `len`, `lookup`, `rands`, `norm`, `cross`, ...)
-- 2D → 3D: `linear_extrude`, `rotate_extrude`, `offset()`, `projection()`
+- 2D → 3D: `linear_extrude`, `rotate_extrude` (including nested extrusion — extrude wrapping extrude), `offset()`, `projection()`
 - File I/O: `include <>`, `use <>` (via `SourceLoader`, with circular-include detection), `import()` (STL), `surface()` (text `.dat`)
 - Diagnostics: `echo()`, `assert()`
 - Quality: `$fn`, `$fs`, `$fa` — both global (file-scope) and per-node overrides
 - Literals: numbers, strings, vectors `[x,y,z]`, `true`/`false`, `undef`
 - Comments: `//` and `/* */`
 
-Known gaps (tracked in `docs/roadmap.md`, v3 Phases 3-4): `polyhedron()`,
-`resize()`, nested extrusion (extrude wrapping extrude, currently a silent
-no-op). Import/export formats beyond STL (OFF/3MF/AMF/DXF/SVG, PNG
-heightmaps) are also deferred.
+Known gaps (tracked in `docs/roadmap.md`, v3 Phase 4): per-file diagnostics
+for code reached via `include`/`use`, PNG heightmap support for `surface()`,
+and import/export formats beyond STL (OFF/3MF/AMF/DXF/SVG).
 
 ### 5.2 AST Design
 
@@ -265,21 +264,22 @@ decouples the language from the geometry engine and enables subtree caching.
 **Key design decision:** transforms are **folded into leaf/composite nodes**
 during the AST→CSG walk — the CSG tree carries no separate transform nodes;
 every node carries its own accumulated world-space `glm::mat4`. The real IR
-(as of v2.5) has five node kinds, not two:
+(as of v3 Phase 3) has six node kinds, not two:
 
 ```cpp
-using CsgNode    = std::variant<CsgLeaf, CsgBoolean, CsgExtrusion, CsgOffset, CsgProjection>;
+using CsgNode    = std::variant<CsgLeaf, CsgBoolean, CsgExtrusion, CsgOffset, CsgProjection, CsgResize>;
 using CsgNodePtr = std::shared_ptr<CsgNode>;
 
 struct CsgLeaf {
-    enum class Kind { Cube, Sphere, Cylinder, Square2D, Circle2D, Polygon2D, Mesh };
+    enum class Kind { Cube, Sphere, Cylinder, Square2D, Circle2D, Polygon2D, Mesh, Polyhedron };
     Kind kind = Kind::Cube;
     std::unordered_map<std::string, double> params; // resolved, not ExprPtr
     bool center = false;
     glm::mat4 transform{1.0f};
     ColorAttr color;
     // Polygon2D: resolved contour points/paths.
-    // Mesh (import()/surface()): raw triangle-soup positions/indices.
+    // Mesh (import()/surface()) and Polyhedron (polyhedron()): raw
+    // triangle-soup positions/indices.
 };
 
 struct CsgBoolean {
@@ -292,8 +292,16 @@ struct CsgBoolean {
 ```
 
 `CsgExtrusion` (`linear_extrude`/`rotate_extrude`), `CsgOffset` (`offset()`),
-and `CsgProjection` (`projection()`) follow the same shape: resolved params,
-a `children` list, an accumulated `transform`, and a `ColorAttr`.
+`CsgProjection` (`projection()`), and `CsgResize` (`resize()`) follow the
+same shape: resolved params (or, for `CsgResize`, resolved `newX/newY/newZ`
+and `autoX/autoY/autoZ` fields), a `children` list, an accumulated
+`transform`, and a `ColorAttr`. `CsgResize` is the one exception to "transforms
+are folded in during the AST→CSG walk": unlike `scale()`, its scale factor
+depends on the tessellated bounding box of its children, which doesn't exist
+until `MeshEvaluator` builds an actual `manifold::Manifold` — so
+`CsgEvaluator` only resolves `newsize`/`auto` into the node, and
+`MeshEvaluator::evalResize()` unions the children, measures
+`Manifold::BoundingBox()`, and computes+applies the scale from that.
 
 **`ColorAttr`** is a `{ bool has; glm::vec4 value; }` pair that accumulates
 top-down exactly like the transform matrix — a nested `color()` overrides its
@@ -332,11 +340,13 @@ has no alpha channel, and no pipeline enables `blendEnable`; see §10 and the
 v4 roadmap).
 
 **Local-space evaluation for non-equivariant ops:** `hull()`, `minkowski()`,
-`offset()`, and `projection()` all evaluate their children in local space and
-apply the accumulated outer `transform` once to the final result, rather than
-per-child. This is required because these operations aren't equivariant under
-arbitrary per-child transforms — e.g. `MinkowskiSum(T(A), T(B)) ≠ T(A) ⊕ B`
-in general.
+`offset()`, `projection()`, and `resize()` all evaluate their children in
+local space and apply the accumulated outer `transform` once to the final
+result, rather than per-child. This is required because these operations
+aren't equivariant under arbitrary per-child transforms — e.g.
+`MinkowskiSum(T(A), T(B)) ≠ T(A) ⊕ B` in general, and similarly resizing each
+child of `resize() { a(); b(); }` independently instead of resizing their
+union would not match OpenSCAD's "resize the combined shape" semantics.
 
 **Caching:** unlike the earlier design sketch, no hash is stored on the CSG
 node itself. `MeshCache` (see §9) builds a cache key on demand by formatting
@@ -458,9 +468,18 @@ private:
     manifold::Manifold    evalLeaf(const CsgLeaf&, const PrimitiveGen&);
     manifold::Manifold    evalBoolean(const CsgBoolean&, const PrimitiveGen&);
     manifold::Manifold    evalExtrusion(const CsgExtrusion&, const PrimitiveGen&);
+    manifold::Manifold    evalResize(const CsgResize&, const PrimitiveGen&);
     manifold::CrossSection getChildCrossSection(const CsgNode&, const PrimitiveGen&);
 };
 ```
+
+`getChildCrossSection()` is also where nested extrusion (`linear_extrude()`/
+`rotate_extrude()` wrapping another extrude) is resolved: the inner
+`CsgExtrusion` is fully evaluated to its 3-D `manifold::Manifold` first (its
+own transform already baked in by `evalExtrusion()`), then flattened to a
+silhouette via `Manifold::Project()` — the same technique `CsgProjection`
+uses for `projection()` — so the outer extrude re-extrudes a well-defined
+2-D cross-section instead of the geometry being dropped.
 
 Each **root** node is evaluated independently and returned as a separate
 `manifold::Manifold` (so objects nested inside other objects stay visible,

@@ -175,20 +175,23 @@ manifold::Manifold PrimitiveGen::generate(const CsgLeaf& leaf) const {
         return {}; // 2-D only — use generateCrossSection() instead
 
     // ------------------------------------------------------------------
-    // Mesh (import()/surface()) — already-resolved triangle mesh from
-    // CsgEvaluator (may or may not be vertex-welded — see CsgNode.h).
-    // import()/StlLoader in particular hands back triangle-soup data: a
-    // duplicated position per triangle vertex, since STL itself has no
-    // shared-vertex indexing. Manifold's boolean/transform ops need genuine
+    // Mesh (import()/surface()) / Polyhedron (polyhedron()) — already-
+    // resolved triangle mesh from CsgEvaluator (may or may not be vertex-
+    // welded — see CsgNode.h). import()/StlLoader in particular hands back
+    // triangle-soup data: a duplicated position per triangle vertex, since
+    // STL itself has no shared-vertex indexing; polyhedron()'s fan-
+    // triangulated faces share indices already but aren't guaranteed to be
+    // manifold-clean either. Manifold's boolean/transform ops need genuine
     // manifold topology (shared indices along every interior edge), so
     // MeshGL::Merge() is called below to weld coincident vertices before
-    // construction — without it, an imported soup mesh almost always fails
-    // Manifold's manifoldness check and every op on it silently propagates
+    // construction — without it, a soup mesh almost always fails Manifold's
+    // manifoldness check and every op on it silently propagates
     // empty/garbage geometry (see MeshEvaluator::checkStatus for the other
     // half of this fix: surfacing that failure as a Diagnostic instead of
     // leaving it silent).
     // ------------------------------------------------------------------
-    case CsgLeaf::Kind::Mesh: {
+    case CsgLeaf::Kind::Mesh:
+    case CsgLeaf::Kind::Polyhedron: {
         static_assert(sizeof(glm::vec3) == 3 * sizeof(float),
                       "glm::vec3 must be a tightly-packed 3-float struct for the bulk copy below");
         manifold::MeshGL mesh;

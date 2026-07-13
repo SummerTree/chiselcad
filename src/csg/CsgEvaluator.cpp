@@ -650,6 +650,12 @@ CsgNodePtr CsgEvaluator::evalModuleCall(const ModuleCallNode& call, const glm::m
     // ---- Built-in: text(t, size=, font=, halign=, valign=, spacing=, $fn=) ----
     if (call.name == "text") return evalText(call, xform, color);
 
+    // ---- Built-in: polyhedron(points=, faces=) ----
+    if (call.name == "polyhedron") return evalPolyhedron(call, xform, color);
+
+    // ---- Built-in: resize(newsize=, auto=) { children } ----
+    if (call.name == "resize") return evalResize(call, xform, color);
+
     auto it = m_moduleDefs.find(call.name);
     if (it == m_moduleDefs.end()) return nullptr; // undefined module
 
@@ -1095,6 +1101,157 @@ CsgNodePtr CsgEvaluator::evalText(const ModuleCallNode& call, const glm::mat4& x
     leaf.polyPoints = std::move(outline.points);
     leaf.polyPaths  = std::move(outline.paths);
     return makeLeaf(std::move(leaf));
+}
+
+// ---------------------------------------------------------------------------
+// polyhedron(points=[[x,y,z],...], faces=[[i,j,k,...],...]) — builds a Mesh-
+// shaped leaf directly from caller-supplied vertices/faces, fan-
+// triangulating each (assumed planar/convex) face; PrimitiveGen's existing
+// Mesh/Polyhedron case (index-bounds checking + MeshGL::Merge() weld, see
+// PrimitiveGen.cpp) handles the rest unchanged, same as import()/surface().
+// `triangles=` is accepted as an alias for `faces=` (OpenSCAD's older name
+// for the same argument). `convexity=` is accepted and discarded, like
+// surface()'s.
+// ---------------------------------------------------------------------------
+CsgNodePtr CsgEvaluator::evalPolyhedron(const ModuleCallNode& call, const glm::mat4& xform, const ColorAttr& color) {
+    const lang::ExprNode* pointsExpr = nullptr;
+    const lang::ExprNode* facesExpr  = nullptr;
+    for (const auto& arg : call.args) {
+        if (arg.name == "points") pointsExpr = arg.value.get();
+        else if (arg.name == "faces" || arg.name == "triangles") facesExpr = arg.value.get();
+        else if (arg.name.empty()) {
+            if (!pointsExpr) pointsExpr = arg.value.get();
+            else if (!facesExpr) facesExpr = arg.value.get();
+        }
+    }
+    if (!pointsExpr || !facesExpr) {
+        reportEvalError(call.loc, "polyhedron() requires points= and faces=");
+        return nullptr;
+    }
+
+    Value pointsVal = m_interp->evaluate(*pointsExpr);
+    if (!pointsVal.isVector()) {
+        reportEvalError(call.loc, "polyhedron(): points must be a vector of [x,y,z] points");
+        return nullptr;
+    }
+    std::vector<glm::vec3> positions;
+    positions.reserve(pointsVal.asVec().size());
+    for (const auto& pt : pointsVal.asVec()) {
+        if (!pt.isVector() || pt.asVec().size() < 3) {
+            reportEvalError(call.loc, "polyhedron(): each point must be an [x,y,z] vector");
+            return nullptr;
+        }
+        const auto& v = pt.asVec();
+        positions.push_back({
+            static_cast<float>(v[0].asNumber()),
+            static_cast<float>(v[1].asNumber()),
+            static_cast<float>(v[2].asNumber())
+        });
+    }
+
+    Value facesVal = m_interp->evaluate(*facesExpr);
+    if (!facesVal.isVector()) {
+        reportEvalError(call.loc, "polyhedron(): faces must be a vector of index lists");
+        return nullptr;
+    }
+
+    const std::size_t numPoints = positions.size();
+    std::vector<uint32_t> indices;
+    for (const auto& face : facesVal.asVec()) {
+        if (!face.isVector() || face.asVec().size() < 3) {
+            reportEvalError(call.loc, "polyhedron(): each face must list at least 3 point indices");
+            return nullptr;
+        }
+        const auto& fv = face.asVec();
+        std::vector<uint32_t> faceIdx;
+        faceIdx.reserve(fv.size());
+        for (const auto& idxVal : fv) {
+            if (!idxVal.isNumber()) {
+                reportEvalError(call.loc, "polyhedron(): face indices must be numbers");
+                return nullptr;
+            }
+            long long i = static_cast<long long>(idxVal.asNumber());
+            if (i < 0 || static_cast<std::size_t>(i) >= numPoints) {
+                reportEvalError(call.loc, "polyhedron(): face references an out-of-range point index");
+                return nullptr;
+            }
+            faceIdx.push_back(static_cast<uint32_t>(i));
+        }
+        // Fan-triangulate from the face's first vertex — OpenSCAD faces are
+        // assumed planar/convex, matching OpenSCAD's own triangulation for
+        // that common case.
+        for (std::size_t i = 1; i + 1 < faceIdx.size(); ++i) {
+            indices.push_back(faceIdx[0]);
+            indices.push_back(faceIdx[i]);
+            indices.push_back(faceIdx[i + 1]);
+        }
+    }
+
+    CsgLeaf leaf;
+    leaf.kind          = CsgLeaf::Kind::Polyhedron;
+    leaf.transform     = xform;
+    leaf.color         = color;
+    leaf.meshPositions = std::move(positions);
+    leaf.meshIndices   = std::move(indices);
+    return makeLeaf(std::move(leaf));
+}
+
+// ---------------------------------------------------------------------------
+// resize(newsize=[x,y,z] [, auto=false|[bx,by,bz]]) { children } — unlike
+// scale() (a pure AST-time matrix fold), resize's scale factor depends on
+// the tessellated bounding box of its children, which only exists once
+// MeshEvaluator has an actual Manifold to measure — so this only resolves
+// newsize/auto here and defers the bbox-driven scale computation to
+// MeshEvaluator::evalResize(). Children are evaluated in local space and the
+// outer transform stored separately, same treatment as offset()/
+// projection()/hull()/minkowski().
+// ---------------------------------------------------------------------------
+CsgNodePtr CsgEvaluator::evalResize(const ModuleCallNode& call, const glm::mat4& xform, const ColorAttr& color) {
+    CsgResize r;
+    r.transform = xform;
+    r.color     = color;
+
+    const lang::ExprNode* newsizeExpr = nullptr;
+    const lang::ExprNode* autoExpr    = nullptr;
+    for (const auto& arg : call.args) {
+        if (arg.name == "newsize") newsizeExpr = arg.value.get();
+        else if (arg.name == "auto") autoExpr = arg.value.get();
+        else if (arg.name.empty()) {
+            if (!newsizeExpr) newsizeExpr = arg.value.get();
+            else if (!autoExpr) autoExpr = arg.value.get();
+        }
+    }
+
+    if (newsizeExpr) {
+        Value nv = m_interp->evaluate(*newsizeExpr);
+        if (nv.isVector()) {
+            const auto& v = nv.asVec();
+            if (v.size() >= 1 && v[0].isNumber()) r.newX = v[0].asNumber();
+            if (v.size() >= 2 && v[1].isNumber()) r.newY = v[1].asNumber();
+            if (v.size() >= 3 && v[2].isNumber()) r.newZ = v[2].asNumber();
+        }
+    }
+    if (autoExpr) {
+        Value av = m_interp->evaluate(*autoExpr);
+        if (av.isVector()) {
+            const auto& v = av.asVec();
+            if (v.size() >= 1) r.autoX = bool(v[0]);
+            if (v.size() >= 2) r.autoY = bool(v[1]);
+            if (v.size() >= 3) r.autoZ = bool(v[2]);
+        } else {
+            r.autoX = r.autoY = r.autoZ = bool(av);
+        }
+    }
+
+    const glm::mat4 identity{1.0f};
+    auto savedEnv = m_interp->snapshotEnv();
+    for (const auto& child : call.children) {
+        if (auto c = evalNode(*child, identity, color))
+            r.children.push_back(std::move(c));
+    }
+    m_interp->restoreEnv(std::move(savedEnv));
+
+    return makeResize(std::move(r));
 }
 
 // ---------------------------------------------------------------------------

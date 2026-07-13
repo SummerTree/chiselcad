@@ -57,10 +57,10 @@ else.
 ### Phase 2 — Parser/debug ergonomics ✓
 - [x] CSG modifier characters `# % ! *` (root/background/disable/debug)
 
-### Phase 3 — Geometry primitives & ops
-- [ ] `polyhedron(points=..., faces=...)`
-- [ ] `resize(newsize, ...)`
-- [ ] Nested extrusion (extrude wrapping extrude) — currently a silent no-op
+### Phase 3 — Geometry primitives & ops ✓
+- [x] `polyhedron(points=..., faces=...)`
+- [x] `resize(newsize, ...)`
+- [x] Nested extrusion (extrude wrapping extrude) — currently a silent no-op
 
 ### Phase 4 — Import/export breadth
 - [ ] Per-file diagnostics for code reached via `include`/`use`

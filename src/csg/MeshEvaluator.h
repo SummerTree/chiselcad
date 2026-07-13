@@ -42,6 +42,7 @@ private:
     manifold::Manifold    evalLeaf(const CsgLeaf& leaf, const PrimitiveGen& gen);
     manifold::Manifold    evalBoolean(const CsgBoolean& b, const PrimitiveGen& gen);
     manifold::Manifold    evalExtrusion(const CsgExtrusion& e, const PrimitiveGen& gen);
+    manifold::Manifold    evalResize(const CsgResize& r, const PrimitiveGen& gen);
     manifold::CrossSection getChildCrossSection(const CsgNode& node, const PrimitiveGen& gen);
 
     // Manifold's boolean/transform/extrude/construction operations don't

@@ -53,6 +53,9 @@ static const CsgOffset& asOffset(const CsgNodePtr& n) {
 static const CsgProjection& asProjection(const CsgNodePtr& n) {
     return std::get<CsgProjection>(*n);
 }
+static const CsgResize& asResize(const CsgNodePtr& n) {
+    return std::get<CsgResize>(*n);
+}
 
 // ---------------------------------------------------------------------------
 // Global params forwarding
@@ -1486,4 +1489,136 @@ TEST_CASE("CsgEval:stacked modifiers combine (highlight + root)", "[csg]") {
     const auto& leaf = asLeaf(s.roots[0]);
     REQUIRE(leaf.color.has);
     REQUIRE(leaf.color.value == kHighlightColor);
+}
+
+// ---------------------------------------------------------------------------
+// v3 Phase 3: polyhedron(points=, faces=)
+// ---------------------------------------------------------------------------
+TEST_CASE("CsgEval:polyhedron with triangular faces produces a Polyhedron leaf", "[csg][tier-f]") {
+    auto s = evaluate(
+        "polyhedron(points=[[0,0,0],[10,0,0],[0,10,0],[0,0,10]],"
+        "           faces=[[0,1,2],[0,1,3],[1,2,3],[0,2,3]]);"
+    );
+    REQUIRE(s.roots.size() == 1);
+    const auto& leaf = asLeaf(s.roots[0]);
+    REQUIRE(leaf.kind == CsgLeaf::Kind::Polyhedron);
+    REQUIRE(leaf.meshPositions.size() == 4);
+    REQUIRE(leaf.meshIndices.size() == 12); // 4 faces, already triangles
+    REQUIRE(s.evalDiags.empty());
+}
+
+TEST_CASE("CsgEval:polyhedron fan-triangulates an n-gon face", "[csg][tier-f]") {
+    auto s = evaluate(
+        "polyhedron(points=[[0,0,0],[1,0,0],[1,1,0],[0,1,0]], faces=[[0,1,2,3]]);"
+    );
+    const auto& leaf = asLeaf(s.roots[0]);
+    REQUIRE(leaf.meshPositions.size() == 4);
+    REQUIRE(leaf.meshIndices.size() == 6); // one quad -> 2 triangles
+    REQUIRE(s.evalDiags.empty());
+}
+
+TEST_CASE("CsgEval:polyhedron accepts triangles= as an alias for faces=", "[csg][tier-f]") {
+    auto s = evaluate(
+        "polyhedron(points=[[0,0,0],[1,0,0],[0,1,0]], triangles=[[0,1,2]]);"
+    );
+    REQUIRE(s.roots.size() == 1);
+    const auto& leaf = asLeaf(s.roots[0]);
+    REQUIRE(leaf.meshIndices.size() == 3);
+}
+
+TEST_CASE("CsgEval:polyhedron honors an outer transform and color", "[csg][tier-f]") {
+    auto s = evaluate(
+        "color(\"red\") translate([1,2,3]) "
+        "polyhedron(points=[[0,0,0],[1,0,0],[0,1,0]], faces=[[0,1,2]]);"
+    );
+    const auto& leaf = asLeaf(s.roots[0]);
+    REQUIRE(leaf.color.has);
+    REQUIRE(leaf.transform[3][0] == Approx(1.0));
+    REQUIRE(leaf.transform[3][1] == Approx(2.0));
+    REQUIRE(leaf.transform[3][2] == Approx(3.0));
+}
+
+TEST_CASE("CsgEval:polyhedron missing points/faces reports a diagnostic", "[csg][tier-f]") {
+    auto s = evaluate("polyhedron(points=[[0,0,0],[1,0,0],[0,1,0]]);");
+    REQUIRE(s.roots.empty());
+    REQUIRE_FALSE(s.evalDiags.empty());
+}
+
+TEST_CASE("CsgEval:polyhedron out-of-range face index reports a diagnostic", "[csg][tier-f]") {
+    auto s = evaluate(
+        "polyhedron(points=[[0,0,0],[1,0,0],[0,1,0]], faces=[[0,1,5]]);"
+    );
+    REQUIRE(s.roots.empty());
+    REQUIRE_FALSE(s.evalDiags.empty());
+}
+
+TEST_CASE("CsgEval:polyhedron ignores convexity for forward compatibility", "[csg][tier-f]") {
+    auto s = evaluate(
+        "polyhedron(points=[[0,0,0],[1,0,0],[0,1,0]], faces=[[0,1,2]], convexity=4);"
+    );
+    REQUIRE(s.roots.size() == 1);
+    REQUIRE(s.evalDiags.empty());
+}
+
+// ---------------------------------------------------------------------------
+// v3 Phase 3: resize(newsize=, auto=)
+// ---------------------------------------------------------------------------
+TEST_CASE("CsgEval:resize resolves named newsize", "[csg][tier-f]") {
+    auto s = evaluate("resize(newsize=[10,20,30]) cube(1);");
+    const auto& r = asResize(s.roots[0]);
+    REQUIRE(r.newX == Approx(10.0));
+    REQUIRE(r.newY == Approx(20.0));
+    REQUIRE(r.newZ == Approx(30.0));
+    REQUIRE_FALSE(r.autoX);
+    REQUIRE_FALSE(r.autoY);
+    REQUIRE_FALSE(r.autoZ);
+    REQUIRE(r.children.size() == 1);
+    REQUIRE(asLeaf(r.children[0]).kind == CsgLeaf::Kind::Cube);
+}
+
+TEST_CASE("CsgEval:resize resolves a positional newsize", "[csg][tier-f]") {
+    auto s = evaluate("resize([5,0,0]) sphere(r=1);");
+    const auto& r = asResize(s.roots[0]);
+    REQUIRE(r.newX == Approx(5.0));
+    REQUIRE(r.newY == Approx(0.0));
+    REQUIRE(r.newZ == Approx(0.0));
+}
+
+TEST_CASE("CsgEval:resize auto=true broadcasts to every axis", "[csg][tier-f]") {
+    auto s = evaluate("resize([10,0,0], auto=true) cube(1);");
+    const auto& r = asResize(s.roots[0]);
+    REQUIRE(r.autoX);
+    REQUIRE(r.autoY);
+    REQUIRE(r.autoZ);
+}
+
+TEST_CASE("CsgEval:resize auto as a per-axis vector", "[csg][tier-f]") {
+    auto s = evaluate("resize([10,0,0], auto=[true,false,true]) cube(1);");
+    const auto& r = asResize(s.roots[0]);
+    REQUIRE(r.autoX);
+    REQUIRE_FALSE(r.autoY);
+    REQUIRE(r.autoZ);
+}
+
+TEST_CASE("CsgEval:resize children evaluated in local space, transform stored outer", "[csg][tier-f]") {
+    auto s = evaluate("translate([10,0,0]) resize([5,5,5]) cube(1);");
+    const auto& r = asResize(s.roots[0]);
+    REQUIRE(r.transform[3][0] == Approx(10.0f));
+    const auto& child = asLeaf(r.children[0]);
+    REQUIRE(child.transform[3][0] == Approx(0.0f));
+}
+
+TEST_CASE("CsgEval:resize wraps multiple children into a union child list", "[csg][tier-f]") {
+    auto s = evaluate("resize([5,5,5]) { cube(1); sphere(r=1); }");
+    const auto& r = asResize(s.roots[0]);
+    REQUIRE(r.children.size() == 2);
+}
+
+TEST_CASE("CsgEval:resize propagates inherited color to children", "[csg][tier-f]") {
+    auto s = evaluate("color(\"blue\") resize([5,5,5]) cube(1);");
+    const auto& r = asResize(s.roots[0]);
+    REQUIRE(r.color.has);
+    const auto& child = asLeaf(r.children[0]);
+    REQUIRE(child.color.has);
+    REQUIRE(child.color.value.b == Approx(1.0f));
 }
