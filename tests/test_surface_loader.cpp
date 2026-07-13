@@ -128,6 +128,15 @@ TEST_CASE("SurfaceLoader:PNG smaller than 2x2 reports a diagnostic, not a crash"
     REQUIRE(mesh.error.empty() == false);
 }
 
+TEST_CASE("SurfaceLoader:an existing but corrupt/truncated PNG reports a diagnostic, not a crash",
+          "[surface-loader][tier-e]") {
+    // corrupt.png is simple.png with its tail cut off — a real PNG
+    // signature/header followed by an incomplete IDAT stream, distinct from
+    // "file doesn't exist" (missing file) or "too small" (valid but < 2x2).
+    auto mesh = loadSurfaceMesh(fixture("surface/corrupt.png"), false, false);
+    REQUIRE(mesh.error.empty() == false);
+}
+
 TEST_CASE("SurfaceLoader:missing PNG file reports a diagnostic, not a crash",
           "[surface-loader][tier-e]") {
     auto mesh = loadSurfaceMesh(fixture("surface/does_not_exist.png"), false, false);

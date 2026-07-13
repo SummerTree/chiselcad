@@ -1692,3 +1692,42 @@ TEST_CASE("CsgEval:import() inside a used file resolves a relative path against 
     REQUIRE(s.roots.size() == 1);
     REQUIRE(asLeaf(s.roots[0]).kind == CsgLeaf::Kind::Mesh);
 }
+
+// ---------------------------------------------------------------------------
+// Per-file diagnostics for the other eval-time error sites (assert()/
+// import() are covered above) — surface()/text()/polyhedron() errors and
+// the module recursion limit all go through the same fileId ->
+// resolveFilePath() plumbing in CsgEvaluator, but each is its own call
+// site, so each needs its own fixture proving the wiring reaches it.
+// ---------------------------------------------------------------------------
+TEST_CASE("CsgEval:surface() failure inside an included file carries that file's path",
+          "[csg][tier-e]") {
+    auto s = evaluateFile(fixture("eval_diag/surface_main.scad"));
+    REQUIRE_FALSE(s.evalDiags.empty());
+    REQUIRE(std::filesystem::path(s.evalDiags[0].filePath) ==
+            fixture("eval_diag/surface_child.scad"));
+}
+
+TEST_CASE("CsgEval:text() failure inside an included file carries that file's path",
+          "[csg][tier-e]") {
+    auto s = evaluateFile(fixture("eval_diag/text_main.scad"));
+    REQUIRE_FALSE(s.evalDiags.empty());
+    REQUIRE(std::filesystem::path(s.evalDiags[0].filePath) == fixture("eval_diag/text_child.scad"));
+}
+
+TEST_CASE("CsgEval:polyhedron() failure inside an included file carries that file's path",
+          "[csg][tier-e]") {
+    auto s = evaluateFile(fixture("eval_diag/polyhedron_main.scad"));
+    REQUIRE_FALSE(s.evalDiags.empty());
+    REQUIRE(std::filesystem::path(s.evalDiags[0].filePath) ==
+            fixture("eval_diag/polyhedron_child.scad"));
+}
+
+TEST_CASE("CsgEval:module recursion limit inside an included file carries that file's path",
+          "[csg][tier-e]") {
+    auto s = evaluateFile(fixture("eval_diag/recursion_main.scad"));
+    REQUIRE_FALSE(s.evalDiags.empty());
+    REQUIRE(s.evalDiags[0].message.find("recursion limit") != std::string::npos);
+    REQUIRE(std::filesystem::path(s.evalDiags[0].filePath) ==
+            fixture("eval_diag/recursion_child.scad"));
+}

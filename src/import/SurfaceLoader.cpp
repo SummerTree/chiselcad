@@ -94,9 +94,25 @@ HeightGrid parseGrid(std::ifstream& f) {
 HeightGrid pngToGrid(const std::filesystem::path& path) {
     HeightGrid grid;
 
+    // Read the file via std::ifstream (which takes std::filesystem::path
+    // directly and so opens it via the native wide-char API on Windows)
+    // rather than handing stbi_load() a narrowed path.string() — the latter
+    // mangles non-ASCII filenames on Windows (stbi_load's char* filename is
+    // interpreted via the ANSI codepage, not UTF-8), unlike the .dat branch
+    // above which already opens the same `path` correctly through ifstream.
+    std::ifstream f(path, std::ios::binary);
+    if (!f) {
+        grid.error = "Cannot open file: " + path.string();
+        return grid;
+    }
+    std::vector<unsigned char> fileBytes((std::istreambuf_iterator<char>(f)),
+                                         std::istreambuf_iterator<char>());
+    f.close();
+
     int width = 0, height = 0, sourceChannels = 0;
     unsigned char* pixels =
-        stbi_load(path.string().c_str(), &width, &height, &sourceChannels, STBI_rgb);
+        stbi_load_from_memory(fileBytes.data(), static_cast<int>(fileBytes.size()), &width, &height,
+                              &sourceChannels, STBI_rgb);
     if (!pixels) {
         grid.error = "cannot decode PNG: " + path.string();
         return grid;

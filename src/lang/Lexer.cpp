@@ -487,6 +487,7 @@ void Lexer::skipBlockComment() {
     loc.line = m_line;
     loc.col = m_col;
     loc.offset = static_cast<uint32_t>(m_pos);
+    loc.fileId = m_fileId;
     addWarning("unterminated block comment", loc);
 }
 
