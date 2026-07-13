@@ -81,6 +81,14 @@ TEST_CASE("SvgLoader:a file with only open shapes (line/polyline) reports a diag
     REQUIRE(poly.paths.empty());
 }
 
+TEST_CASE("SvgLoader:a path with no trailing Z is open and not imported", "[svg-loader][tier-e]") {
+    // Same shape as path.svg's M0,0 L4,0 L4,4 L0,4 Z but without the
+    // closing Z — must be rejected as open, not silently treated as closed.
+    auto poly = loadSvgPaths(fixture("import/open_path.svg"));
+    REQUIRE_FALSE(poly.error.empty());
+    REQUIRE(poly.paths.empty());
+}
+
 TEST_CASE("SvgLoader:missing file reports an error, not a crash", "[svg-loader][tier-e]") {
     auto poly = loadSvgPaths(fixture("import/does_not_exist.svg"));
     REQUIRE_FALSE(poly.error.empty());

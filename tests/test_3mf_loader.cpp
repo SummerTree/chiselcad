@@ -32,9 +32,38 @@ TEST_CASE("ThreeMfLoader:loads a STORED (uncompressed) archive identically",
     REQUIRE(mesh.indices.size() == 12);
 }
 
+TEST_CASE("ThreeMfLoader:an out-of-range triangle index is skipped, not used as-is",
+          "[3mf-loader][tier-e]") {
+    // oob_triangle.3mf has 3 vertices and 2 triangles; the second
+    // references vertex index 999999, far outside the object's own 0-2
+    // vertex range. It must be dropped, not pushed into out.indices (which
+    // would let downstream mesh code index past the position buffer).
+    auto mesh = loadThreeMfMesh(fixture("import/oob_triangle.3mf"));
+    REQUIRE(mesh.error.empty());
+    REQUIRE(mesh.positions.size() == 3);
+    REQUIRE(mesh.indices.size() == 3); // only the first (valid) triangle survives
+    for (uint32_t idx : mesh.indices)
+        REQUIRE(idx < mesh.positions.size());
+}
+
 TEST_CASE("ThreeMfLoader:not a ZIP archive reports a diagnostic, not a crash",
           "[3mf-loader][tier-e]") {
     auto mesh = loadThreeMfMesh(fixture("import/corrupt.3mf"));
+    REQUIRE_FALSE(mesh.error.empty());
+    REQUIRE(mesh.positions.empty());
+}
+
+TEST_CASE("ThreeMfLoader:a central-directory entry with a huge local-header offset is rejected, "
+          "not read out-of-bounds",
+          "[3mf-loader][tier-e]") {
+    // malicious_offset.3mf's one central-directory entry claims a local
+    // file header at offset 0xFFFFFFF0 (~4GB) in an 84-byte file. Computing
+    // "offset + 30 > size" in 32-bit space wraps 0xFFFFFFF0 + 30 back down
+    // to 14, which is NOT > 84 — so the bounds check would pass and
+    // ZipReader would then read the ZIP local-file-header signature at the
+    // real (huge) offset, far past the end of the in-memory buffer. Must be
+    // rejected as malformed instead of reading out-of-bounds.
+    auto mesh = loadThreeMfMesh(fixture("import/malicious_offset.3mf"));
     REQUIRE_FALSE(mesh.error.empty());
     REQUIRE(mesh.positions.empty());
 }

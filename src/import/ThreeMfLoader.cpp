@@ -52,7 +52,17 @@ RawThreeMfMesh loadThreeMfMesh(const std::filesystem::path& path) {
                                        static_cast<float>(attrNum(ev, "z")));
         } else if (ev.tag == "triangle") {
             long long v1 = attrInt(ev, "v1"), v2 = attrInt(ev, "v2"), v3 = attrInt(ev, "v3");
-            if (v1 < 0 || v2 < 0 || v3 < 0)
+            // v1/v2/v3 are local to the enclosing object's own vertex list
+            // (per the 3MF core spec), so the valid range is
+            // [0, out.positions.size() - objectVertexBase) — bounds-check
+            // against that rather than just rejecting negative values, or a
+            // malformed/adversarial <triangle v1="999999".../> with far
+            // fewer <vertex> entries produces an out-of-range index that
+            // downstream mesh code would index the position buffer with.
+            long long localVertexCount =
+                static_cast<long long>(out.positions.size() - objectVertexBase);
+            if (v1 < 0 || v2 < 0 || v3 < 0 || v1 >= localVertexCount || v2 >= localVertexCount ||
+                v3 >= localVertexCount)
                 continue; // malformed triangle — skip rather than crash
             out.indices.push_back(
                 static_cast<uint32_t>(objectVertexBase + static_cast<std::size_t>(v1)));

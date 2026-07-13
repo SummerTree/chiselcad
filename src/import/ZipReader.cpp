@@ -119,13 +119,19 @@ ZipExtractResult zipExtractBySuffix(const std::filesystem::path& archivePath,
         return out;
     }
 
-    if (localOffset + 30 > data.size() || readU32(data, localOffset) != kLocalSig) {
+    // Widen to size_t before adding: localOffset is uint32_t, and a
+    // malformed/adversarial central directory entry could set it near
+    // 0xFFFFFFFF, which would wrap back into range in 32-bit arithmetic and
+    // defeat this bounds check entirely.
+    if (static_cast<std::size_t>(localOffset) + 30 > data.size() ||
+        readU32(data, localOffset) != kLocalSig) {
         out.error = "malformed ZIP local file header";
         return out;
     }
     uint16_t localNameLen = readU16(data, localOffset + 26);
     uint16_t localExtraLen = readU16(data, localOffset + 28);
-    std::size_t dataStart = localOffset + 30 + localNameLen + localExtraLen;
+    std::size_t dataStart =
+        static_cast<std::size_t>(localOffset) + 30 + localNameLen + localExtraLen;
     if (dataStart + compSize > data.size()) {
         out.error = "malformed ZIP entry (compressed data extends past end of file)";
         return out;

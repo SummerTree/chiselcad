@@ -239,13 +239,20 @@ std::vector<std::vector<glm::vec2>> parsePathData(const std::string& d) {
     glm::vec2 subpathStart{0.0f, 0.0f};
     std::vector<glm::vec2> current;
     bool haveSubpath = false;
+    // Only a subpath that actually hit a Z/z (closepath) command counts as
+    // closed — without this, an explicitly open subpath (e.g.
+    // "M0,0 L4,0 L4,4 L0,4" with no trailing Z) would be silently imported
+    // as if it were closed, contradicting this function's "closed subpaths
+    // only" contract.
+    bool closedByZ = false;
     char cmd = 0;
 
     auto closeSubpath = [&] {
-        if (haveSubpath && current.size() >= 3)
+        if (haveSubpath && closedByZ && current.size() >= 3)
             closed.push_back(current);
         current.clear();
         haveSubpath = false;
+        closedByZ = false;
     };
 
     while (!sc.atEnd()) {
@@ -348,6 +355,7 @@ std::vector<std::vector<glm::vec2>> parsePathData(const std::string& d) {
         case 'Z': {
             if (haveSubpath)
                 current.push_back(subpathStart);
+            closedByZ = true;
             closeSubpath();
             cur = subpathStart;
             break;
@@ -446,10 +454,10 @@ RawPolygon2D loadSvgPaths(const std::filesystem::path& path) {
         return out;
     }
 
-    for (auto& path : closedPaths) {
+    for (auto& contour : closedPaths) {
         std::vector<int> indices;
-        indices.reserve(path.size());
-        for (auto& pt : path) {
+        indices.reserve(contour.size());
+        for (auto& pt : contour) {
             indices.push_back(static_cast<int>(out.points.size()));
             out.points.push_back(pt);
         }

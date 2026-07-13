@@ -205,10 +205,10 @@ RawPolygon2D loadDxfPaths(const std::filesystem::path& path, const std::string& 
         return out;
     }
 
-    for (auto& path : closedPaths) {
+    for (auto& contour : closedPaths) {
         std::vector<int> indices;
-        indices.reserve(path.size());
-        for (auto& pt : path) {
+        indices.reserve(contour.size());
+        for (auto& pt : contour) {
             indices.push_back(static_cast<int>(out.points.size()));
             out.points.push_back(pt);
         }

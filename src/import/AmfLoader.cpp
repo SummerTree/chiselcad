@@ -64,7 +64,15 @@ RawAmfMesh loadAmfMesh(const std::filesystem::path& path) {
                 out.positions.emplace_back(static_cast<float>(vx), static_cast<float>(vy),
                                            static_cast<float>(vz));
             } else if (ev.tag == "triangle") {
-                if (t1 >= 0 && t2 >= 0 && t3 >= 0) {
+                // v1/v2/v3 are local to the enclosing object's own vertex
+                // list, so the valid range is
+                // [0, out.positions.size() - objectVertexBase) — bounds-
+                // check against that rather than just rejecting negative
+                // values, same fix as ThreeMfLoader.cpp's identical gap.
+                long long localVertexCount =
+                    static_cast<long long>(out.positions.size() - objectVertexBase);
+                if (t1 >= 0 && t2 >= 0 && t3 >= 0 && t1 < localVertexCount &&
+                    t2 < localVertexCount && t3 < localVertexCount) {
                     out.indices.push_back(
                         static_cast<uint32_t>(objectVertexBase + static_cast<std::size_t>(t1)));
                     out.indices.push_back(

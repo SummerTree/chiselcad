@@ -24,6 +24,18 @@ TEST_CASE("AmfLoader:loads a tetrahedron from element text content", "[amf-loade
     REQUIRE(mesh.positions[3].z == Approx(1.0));
 }
 
+TEST_CASE("AmfLoader:an out-of-range triangle index is skipped, not used as-is",
+          "[amf-loader][tier-e]") {
+    // Same shape as ThreeMfLoader's equivalent test: 3 vertices, 2
+    // triangles, the second referencing vertex index 999999.
+    auto mesh = loadAmfMesh(fixture("import/oob_triangle.amf"));
+    REQUIRE(mesh.error.empty());
+    REQUIRE(mesh.positions.size() == 3);
+    REQUIRE(mesh.indices.size() == 3);
+    for (uint32_t idx : mesh.indices)
+        REQUIRE(idx < mesh.positions.size());
+}
+
 TEST_CASE("AmfLoader:empty mesh reports a diagnostic, not a crash", "[amf-loader][tier-e]") {
     auto mesh = loadAmfMesh(fixture("import/empty.amf"));
     REQUIRE_FALSE(mesh.error.empty());
