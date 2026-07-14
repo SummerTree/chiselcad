@@ -1,0 +1,2 @@
+module recurse() { recurse(); }
+recurse();
