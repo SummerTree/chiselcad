@@ -3,6 +3,7 @@
 #include "lang/Interpreter.h"
 #include "lang/Lexer.h"
 #include "lang/Parser.h"
+#include <memory>
 
 using namespace chisel::lang;
 using Catch::Approx;
@@ -868,6 +869,29 @@ TEST_CASE("Interp:copying a function-literal variable does not leak into the ori
     ExprNode callH = makeCall("h", {2.0});
     REQUIRE(ctx.interp.evalNumber(callF) == Approx(2.0));
     REQUIRE(ctx.interp.evalNumber(callH) == Approx(3.0));
+}
+
+TEST_CASE("Interp:self-recursive function literal does not leak a shared_ptr reference cycle",
+          "[interp][v36][bugfix]") {
+    // Regression test for a real bug: seeding recursion by storing a Value
+    // that itself holds `closure` back into `closure->vars` would make
+    // ClosureEnv reference itself through a shared_ptr cycle, which
+    // shared_ptr can never collect — every self-recursive function literal
+    // would leak its captured environment for the process lifetime.
+    std::weak_ptr<ClosureEnv> weakClosure;
+    {
+        auto ctx = loadEnvWithFuncs("fact = function(n) n <= 1 ? 1 : n * fact(n - 1);");
+        Value f = ctx.interp.getVar("fact");
+        REQUIRE(f.isFunction());
+        weakClosure = f.closure;
+        REQUIRE_FALSE(weakClosure.expired());
+
+        ExprNode call = makeCall("fact", {6.0});
+        REQUIRE(ctx.interp.evalNumber(call) == Approx(720.0));
+    }
+    // ctx (and its Interpreter's env) and the local `f` are both gone now —
+    // if the ClosureEnv were kept alive by a cycle, this would still be false.
+    REQUIRE(weakClosure.expired());
 }
 
 // ---------------------------------------------------------------------------

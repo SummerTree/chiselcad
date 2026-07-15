@@ -91,6 +91,14 @@ struct Value {
 struct ClosureEnv {
     const FunctionLit*                     def = nullptr; // params + body
     std::unordered_map<std::string, Value> vars;           // captured defining scope
+    // Set (by Interpreter::assignVar) when this closure was bound directly
+    // to a name — `name = function(...) ...;` — so its body can recurse by
+    // that name. Deliberately just a string, not a Value stored in `vars`:
+    // a Value naming this same closure would hold a shared_ptr<ClosureEnv>
+    // back to this very object, an uncollectable reference cycle that leaks
+    // it for the process lifetime. Interpreter::callClosure resolves this
+    // into a fresh, call-local binding instead.
+    std::string selfName;
 };
 
 } // namespace chisel::lang

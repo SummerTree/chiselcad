@@ -437,14 +437,14 @@ void Interpreter::setVar(const std::string& name, Value val) {
 void Interpreter::assignVar(const std::string& name, const ExprNode& valueExpr) {
     Value v = evaluate(valueExpr);
     if (v.isFunction() && v.closure && std::holds_alternative<FunctionLit>(valueExpr))
-        v.closure->vars[name] = v; // enable `name(...)` to recurse from within its own body
+        v.closure->selfName = name; // let `name(...)` recurse from within its own body (see callClosure)
     m_env[name] = std::move(v);
 }
 
 // ---------------------------------------------------------------------------
 // callClosure — invoke a Value::Tag::Function closure
 // ---------------------------------------------------------------------------
-Value Interpreter::callClosure(const Value& fnVal,
+Value Interpreter::callClosure(Value fnVal,
                                 const std::vector<Value>& posArgs,
                                 const std::vector<std::pair<std::string, Value>>& namedArgs) {
     if (!fnVal.closure || !fnVal.closure->def || m_callDepth >= kMaxCallDepth)
@@ -453,6 +453,11 @@ Value Interpreter::callClosure(const Value& fnVal,
 
     auto savedEnv = snapshotEnv();
     m_env = fnVal.closure->vars; // lexical scope: where the literal was written, not where it's called
+    // Rebind the closure's own name (if any) fresh for this call only — never
+    // stored back into fnVal.closure->vars itself, which would recreate the
+    // shared_ptr<ClosureEnv> cycle assignVar's comment warns about.
+    if (!fnVal.closure->selfName.empty())
+        m_env[fnVal.closure->selfName] = fnVal;
 
     std::size_t posIdx = 0;
     for (const auto& param : def.params) {
