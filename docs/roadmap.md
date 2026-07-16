@@ -84,12 +84,18 @@ cover. Fixed:
 - [x] `linear_extrude(slices=...)` — was parsed but silently ignored; twist division count now honors it over the `$fn` default
 - [x] `children([vector])` / `children([range])` — only a single plain-number index worked before
 - [x] `echo(name=value)` now formats as `name = value`, matching OpenSCAD
+- [x] `$vpr`/`$vpt`/`$vpd` viewport special variables — `MeshBuilder`'s
+  `requestBuild()` now takes a `ViewportState` snapshot (derived from
+  `Application::currentViewport()`, reading the camera's pitch/yaw/target/
+  distance) and plumbs it into a pre-populated `Interpreter` before
+  evaluation, mirroring how `fileTable` is already threaded through the
+  `evaluate(result, interp)` overload. Headless/test evaluation (a
+  default-constructed `Interpreter`) falls back to OpenSCAD's own defaults
+  (`$vpr=[55,0,25]`, `$vpt=[0,0,0]`, `$vpd=140`) instead of `undef`. No
+  roll in this camera model, so `$vpr[1]` is always 0.
 
 **Explicitly deferred, not done in this pass** (tracked here so they aren't
 lost, not because they don't matter):
-- `$vpr`/`$vpt`/`$vpd` viewport special variables — would need the render
-  layer's camera state plumbed into the interpreter, a cross-subsystem wire
-  that doesn't exist today; rarely load-bearing in real `.scad` files.
 - `cube`/`sphere`/`translate`/etc. are reserved lexer keywords rather than
   ordinary identifiers, so (unlike real OpenSCAD) a script can't use one of
   those names as a variable. Real-world impact is low, but it's a genuine

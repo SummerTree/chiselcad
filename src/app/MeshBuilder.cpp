@@ -3,6 +3,7 @@
 #include "csg/CsgEvaluator.h"
 #include "csg/MeshCache.h"
 #include "csg/MeshEvaluator.h"
+#include "lang/Interpreter.h"
 #include "lang/SourceLoader.h"
 
 #include <chrono>
@@ -68,13 +69,14 @@ MeshBuilder::~MeshBuilder() {
     m_thread.join();
 }
 
-void MeshBuilder::requestBuild(std::filesystem::path path) {
+void MeshBuilder::requestBuild(std::filesystem::path path, ViewportState viewport) {
     int gen = ++m_currentGen;
     {
         std::lock_guard<std::mutex> lk(m_workMutex);
         m_hasWork = true;
         m_workPath = std::move(path);
         m_workGen = gen;
+        m_workViewport = viewport;
     }
     m_workCv.notify_one();
 }
@@ -97,6 +99,7 @@ void MeshBuilder::workerLoop() {
     while (true) {
         std::filesystem::path path;
         int gen = 0;
+        ViewportState viewport;
         {
             std::unique_lock<std::mutex> lk(m_workMutex);
             m_workCv.wait(lk, [this] { return m_stop || m_hasWork; });
@@ -105,12 +108,13 @@ void MeshBuilder::workerLoop() {
             m_hasWork = false;
             path = m_workPath;
             gen = m_workGen;
+            viewport = m_workViewport;
         }
-        buildOne(std::move(path), gen);
+        buildOne(std::move(path), gen, viewport);
     }
 }
 
-void MeshBuilder::buildOne(std::filesystem::path path, int gen) {
+void MeshBuilder::buildOne(std::filesystem::path path, int gen, ViewportState viewport) {
     using Clock = std::chrono::steady_clock;
     auto t0 = Clock::now();
     auto elapsedMs = [&] {
@@ -165,7 +169,15 @@ void MeshBuilder::buildOne(std::filesystem::path path, int gen) {
     csgEval.baseDir = path.parent_path(); // for import()'s relative paths
     csgEval.fileTable =
         &loaded.files; // per-file diagnostics + relative-path resolution across include/use
-    auto scene = csgEval.evaluate(ast);
+
+    // Full evaluate() overload (rather than the convenience one) so $vpr/
+    // $vpt/$vpd reflect the camera snapshot passed to requestBuild().
+    lang::Interpreter interp;
+    interp.setViewport(viewport.vpr[0], viewport.vpr[1], viewport.vpr[2], viewport.vpt[0],
+                        viewport.vpt[1], viewport.vpt[2], viewport.vpd);
+    interp.loadAssignments(ast);
+    interp.loadFunctions(ast);
+    auto scene = csgEval.evaluate(ast, interp);
 
     // Forward echo() output as Info diagnostics
     for (const auto& msg : scene.echoMessages) {

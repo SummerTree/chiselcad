@@ -90,6 +90,14 @@ Value Interpreter::evaluate(const ExprNode& expr) {
             if (node.name == "$parent_modules")
                 return Value::fromNumber(m_moduleNameStack.empty() ? 0.0
                     : static_cast<double>(m_moduleNameStack.size() - 1));
+            if (node.name == "$vpr")
+                return Value::fromVec({Value::fromNumber(m_vpr[0]), Value::fromNumber(m_vpr[1]),
+                                        Value::fromNumber(m_vpr[2])});
+            if (node.name == "$vpt")
+                return Value::fromVec({Value::fromNumber(m_vpt[0]), Value::fromNumber(m_vpt[1]),
+                                        Value::fromNumber(m_vpt[2])});
+            if (node.name == "$vpd")
+                return Value::fromNumber(m_vpd);
             return Value::undef();
         }
 
