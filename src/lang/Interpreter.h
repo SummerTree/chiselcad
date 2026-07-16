@@ -34,6 +34,26 @@ public:
     Value       getVar(const std::string& name) const;
     void        setVar(const std::string& name, Value val);
 
+    // Binds `name` in the current scope to the evaluated result of valueExpr
+    // — used everywhere a real assignment happens (global `x = expr;`, local
+    // block assignments, `let(x = expr, ...)` bindings), as opposed to
+    // setVar's other callers (module/function parameter binding, for-loop
+    // variables) which must NOT get the special case below. When valueExpr
+    // is directly a function literal (`f = function(n) ... f(n-1) ...;`),
+    // this also records the closure's own name (ClosureEnv::selfName) so
+    // callClosure can bind it for the literal's body to call itself by that
+    // name — mirroring OpenSCAD's function-literal recursion. Restricting
+    // this to a literal directly on the right-hand side (checked via the AST
+    // node type, not the runtime Value) keeps it safe: the closure was just
+    // constructed by this same evaluate() call, so nothing else can be
+    // aliasing it yet. A plain copy (`g = f;`) does not re-trigger this —
+    // renaming a closure that's already shared with other bindings would
+    // rebind `name` in their calls too. Note this stores only a name string,
+    // not a Value referencing the closure itself: the latter would be a
+    // shared_ptr<ClosureEnv> cycle back into its own vars map, which
+    // shared_ptr can never collect.
+    void assignVar(const std::string& name, const ExprNode& valueExpr);
+
     // Expands a range's [start:step:end] bounds into the concrete sequence
     // of values it denotes — shared by for-loops (both the `for (v =
     // [a:b:c])` literal form and `for (v = expr)` when expr is a Range
@@ -97,6 +117,20 @@ private:
 
     Value callBuiltin(const std::string& name,
                       const std::vector<Value>& args) const;
+
+    // Invokes a closure Value (see Value::Tag::Function): binds fnVal's
+    // params against posArgs/namedArgs the same way a named FunctionDef call
+    // does, but starting from the closure's *captured* environment rather
+    // than the caller's — a function literal sees the scope where
+    // `function(...) ...` was written, not the scope it's called from.
+    // Takes fnVal by value, not by reference: the caller's reference is
+    // typically an element inside m_env (e.g. a FunctionCall looks the
+    // callee up via m_env.find), and this function reassigns m_env wholesale
+    // as its first step (to switch to the closure's own captured scope) —
+    // a reference into the old map would dangle the moment that happens.
+    Value callClosure(Value fnVal,
+                       const std::vector<Value>& posArgs,
+                       const std::vector<std::pair<std::string, Value>>& namedArgs);
 
     // Appends v's per-iteration values (see iterationValues()) onto out —
     // used by `each` in both a plain list literal and a list-comprehension
