@@ -133,7 +133,7 @@ void Application::run() {
             m_watcher = std::make_unique<editor::FileWatcher>(
                 m_state.scadPath,
                 [this](const auto& p) { onFileChanged(p); });
-            m_meshBuilder.requestBuild(m_state.scadPath);
+            m_meshBuilder.requestBuild(m_state.scadPath, currentViewport());
         }
     }
 
@@ -151,7 +151,7 @@ void Application::run() {
             m_camera.orbitYaw(dt * 0.5f); // ~28.6 deg/s
 
         if (m_state.meshDirty.exchange(false) && !m_state.scadPath.empty())
-            m_meshBuilder.requestBuild(m_state.scadPath);
+            m_meshBuilder.requestBuild(m_state.scadPath, currentViewport());
 
         if (auto result = m_meshBuilder.poll()) {
             m_diagPanel.setDiagnostics(result->diags);
@@ -314,6 +314,19 @@ void Application::fitToView() {
     m_camera.fitToBounds(m_meshBoundsMin, m_meshBoundsMax);
 }
 
+ViewportState Application::currentViewport() const {
+    ViewportState vp;
+    vp.vpr[0] = glm::degrees(m_camera.pitch());
+    vp.vpr[1] = 0.0; // no roll in this camera model
+    vp.vpr[2] = glm::degrees(m_camera.yaw());
+    glm::vec3 t = m_camera.target();
+    vp.vpt[0] = t.x;
+    vp.vpt[1] = t.y;
+    vp.vpt[2] = t.z;
+    vp.vpd    = m_camera.distance();
+    return vp;
+}
+
 void Application::openFile() {
     auto path = openFileDialog();
     if (path.empty()) return;
@@ -334,7 +347,7 @@ void Application::openFile() {
     m_diagPanel.setScadPath(path);
     m_watcher = std::make_unique<editor::FileWatcher>(
         path, [this](const auto& p) { onFileChanged(p); });
-    m_meshBuilder.requestBuild(path);
+    m_meshBuilder.requestBuild(path, currentViewport());
 }
 
 void Application::loadStlFile(const std::filesystem::path& path) {
@@ -410,7 +423,7 @@ void Application::drawMenuBar() {
             openFile();
         ImGui::Separator();
         if (ImGui::MenuItem("Reload", "R"))
-            m_meshBuilder.requestBuild(m_state.scadPath);
+            m_meshBuilder.requestBuild(m_state.scadPath, currentViewport());
         ImGui::Separator();
         bool hasMesh = !m_meshVerts.empty();
         if (!hasMesh) ImGui::BeginDisabled();
@@ -503,7 +516,7 @@ void Application::drawPrefsPopup() {
         if (m_config.warnOverlappingRoots != prev) {
             m_meshBuilder.setWarnOverlappingRoots(m_config.warnOverlappingRoots);
             if (!m_state.scadPath.empty())
-                m_meshBuilder.requestBuild(m_state.scadPath);
+                m_meshBuilder.requestBuild(m_state.scadPath, currentViewport());
         }
 
         ImGui::Spacing();
@@ -576,7 +589,7 @@ void Application::drawImGui() {
                 formatCount(m_stlVertCount).c_str());
         } else {
             if (ImGui::Button("Reload"))
-                m_meshBuilder.requestBuild(m_state.scadPath);
+                m_meshBuilder.requestBuild(m_state.scadPath, currentViewport());
 
             ImGui::Separator();
 
@@ -584,7 +597,7 @@ void Application::drawImGui() {
             ImGui::Checkbox("Manifold sphere", &m_useManifoldSphere);
             if (m_useManifoldSphere != prev) {
                 m_meshBuilder.setUseManifoldSphere(m_useManifoldSphere);
-                m_meshBuilder.requestBuild(m_state.scadPath);
+                m_meshBuilder.requestBuild(m_state.scadPath, currentViewport());
             }
 
             ImGui::Separator();

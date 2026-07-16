@@ -777,6 +777,58 @@ TEST_CASE("Interp:$preview and $t have sane defaults", "[interp][v35]") {
 }
 
 // ---------------------------------------------------------------------------
+// v3.5 (deferred) — $vpr / $vpt / $vpd
+// ---------------------------------------------------------------------------
+TEST_CASE("Interp:$vpr/$vpt/$vpd default to OpenSCAD's own defaults", "[interp][v35]") {
+    Value vpr = evalVal("$vpr");
+    REQUIRE(vpr.isVector());
+    REQUIRE(vpr.asVec().size() == 3);
+    REQUIRE(vpr.asVec()[0].asNumber() == Approx(55.0));
+    REQUIRE(vpr.asVec()[1].asNumber() == Approx(0.0));
+    REQUIRE(vpr.asVec()[2].asNumber() == Approx(25.0));
+
+    Value vpt = evalVal("$vpt");
+    REQUIRE(vpt.isVector());
+    REQUIRE(vpt.asVec().size() == 3);
+    REQUIRE(vpt.asVec()[0].asNumber() == Approx(0.0));
+    REQUIRE(vpt.asVec()[1].asNumber() == Approx(0.0));
+    REQUIRE(vpt.asVec()[2].asNumber() == Approx(0.0));
+
+    REQUIRE(evalNum("$vpd") == Approx(140.0));
+}
+
+TEST_CASE("Interp:setViewport overrides $vpr/$vpt/$vpd", "[interp][v35]") {
+    Lexer  lexer("_a = $vpr; _b = $vpt; _c = $vpd;");
+    auto   tokens = lexer.tokenize();
+    Parser parser(std::move(tokens));
+    auto   result = parser.parse();
+    REQUIRE(result.assignments.size() == 3);
+
+    Interpreter interp;
+    interp.setViewport(10.0, 20.0, 30.0, 1.0, 2.0, 3.0, 99.0);
+
+    Value vpr = interp.evaluate(*result.assignments[0].value);
+    REQUIRE(vpr.asVec()[0].asNumber() == Approx(10.0));
+    REQUIRE(vpr.asVec()[1].asNumber() == Approx(20.0));
+    REQUIRE(vpr.asVec()[2].asNumber() == Approx(30.0));
+
+    Value vpt = interp.evaluate(*result.assignments[1].value);
+    REQUIRE(vpt.asVec()[0].asNumber() == Approx(1.0));
+    REQUIRE(vpt.asVec()[1].asNumber() == Approx(2.0));
+    REQUIRE(vpt.asVec()[2].asNumber() == Approx(3.0));
+
+    Value vpd = interp.evaluate(*result.assignments[2].value);
+    REQUIRE(vpd.asNumber() == Approx(99.0));
+}
+
+TEST_CASE("Interp:$vpr/$vpt/$vpd can be shadowed by a user assignment", "[interp][v35]") {
+    // Matches OpenSCAD: these are defaults, not protected keywords.
+    Interpreter interp = loadEnv("$vpd = 7; $vpt = [1,1,1];");
+    REQUIRE(interp.getVar("$vpd").asNumber() == Approx(7.0));
+    REQUIRE(interp.getVar("$vpt").asVec()[0].asNumber() == Approx(1.0));
+}
+
+// ---------------------------------------------------------------------------
 // v3.5 — is_undef / is_bool / is_num / is_string / is_list / is_function
 // ---------------------------------------------------------------------------
 TEST_CASE("Interp:is_undef distinguishes undef from other falsy values", "[interp][v35]") {

@@ -13,6 +13,21 @@
 
 namespace chisel::app {
 
+// Snapshot of render-camera state to plumb into $vpr/$vpt/$vpd for a build.
+// Defaults match OpenSCAD's own defaults (no camera() statement) so a caller
+// with no live camera (tests, CLI use) can pass ViewportState{} and still
+// get sane values instead of undef — see Interpreter::setViewport. Kept at
+// namespace scope rather than nested in MeshBuilder: a nested aggregate used
+// as a default argument of its own enclosing class's member function hits a
+// "default member initializer required before the end of its enclosing
+// class" error under GCC, since default-member-initializer resolution and
+// default-function-argument resolution both defer to end-of-class.
+struct ViewportState {
+    double vpr[3] = {55.0, 0.0, 25.0}; // [x,y,z] rotation degrees
+    double vpt[3] = {0.0, 0.0, 0.0};   // [x,y,z] translation (orbit target)
+    double vpd    = 140.0;             // viewport distance
+};
+
 enum class BuildPhase : int {
     Idle,
     Parsing,
@@ -59,8 +74,10 @@ public:
     ~MeshBuilder();  // stops and joins the worker thread
 
     // Queue a new build.  If a build is already running, its result will be
-    // discarded when poll() is next called.
-    void requestBuild(std::filesystem::path path);
+    // discarded when poll() is next called. `viewport` is snapshotted at
+    // request time and used to set $vpr/$vpt/$vpd for this build only —
+    // callers that don't care (or have no camera) can omit it.
+    void requestBuild(std::filesystem::path path, ViewportState viewport = {});
 
     void setUseManifoldSphere(bool v)      noexcept { m_useManifoldSphere.store(v); }
     void setWarnOverlappingRoots(bool v)  noexcept { m_warnOverlappingRoots.store(v); }
@@ -80,7 +97,7 @@ public:
 
 private:
     void workerLoop();
-    void buildOne(std::filesystem::path path, int gen);
+    void buildOne(std::filesystem::path path, int gen, ViewportState viewport);
 
     // Owned by and only ever touched from the worker thread (workerLoop()/
     // buildOne() below) — never accessed from the main thread, so it needs
@@ -100,6 +117,7 @@ private:
     bool                    m_hasWork = false;
     std::filesystem::path   m_workPath;
     int                     m_workGen = 0;
+    ViewportState           m_workViewport;
 
     // Incremented by requestBuild(); read by poll() to detect stale results.
     std::atomic<int>        m_currentGen{0};

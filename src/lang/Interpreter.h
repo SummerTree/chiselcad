@@ -83,10 +83,31 @@ public:
     void pushModuleName(std::string name) { m_moduleNameStack.push_back(std::move(name)); }
     void popModuleName() { m_moduleNameStack.pop_back(); }
 
+    // Sets $vpr/$vpt/$vpd (viewport rotation/translation/distance), backing
+    // those special variables' VarRef fallback below. Left at their
+    // OpenSCAD-matching defaults (see member initializers) unless the caller
+    // has real render-camera state to plumb in (MeshBuilder does this,
+    // deriving vpr from Camera's yaw/pitch — see MeshBuilder::buildOne);
+    // headless evaluation (tests, CLI use) just keeps the defaults.
+    void setViewport(double vprX, double vprY, double vprZ,
+                     double vptX, double vptY, double vptZ,
+                     double vpd) {
+        m_vpr = {vprX, vprY, vprZ};
+        m_vpt = {vptX, vptY, vptZ};
+        m_vpd = vpd;
+    }
+
 private:
     std::unordered_map<std::string, Value>             m_env;
     std::unordered_map<std::string, const FunctionDef*> m_funcDefs;
     std::vector<std::string>                           m_moduleNameStack;
+
+    // $vpr/$vpt/$vpd defaults match OpenSCAD's own defaults for a file with
+    // no camera() statement and no GUI camera attached, so headless
+    // evaluation reads sane numbers rather than undef.
+    std::array<double, 3> m_vpr{55.0, 0.0, 25.0};
+    std::array<double, 3> m_vpt{0.0, 0.0, 0.0};
+    double                m_vpd = 140.0;
 
     // Guards against unbounded recursion in user-defined functions (e.g. a
     // missing base case) blowing the native call stack. Silent cap, no

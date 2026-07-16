@@ -51,6 +51,14 @@ private:
     void exportStl();
     void loadStlFile(const std::filesystem::path& path);
 
+    // Snapshot of m_camera for $vpr/$vpt/$vpd, passed to each requestBuild()
+    // call so a build reflects the camera as of when the build was queued
+    // (matching OpenSCAD: these vars update on render, not on every mouse
+    // drag). No roll in this camera model, so vpr[1] is always 0; vpr[0]/
+    // vpr[2] map from pitch/yaw the same way OpenSCAD's own vpr[0]
+    // (elevation, 0=horizon/90=top-down) and vpr[2] (azimuth) behave.
+    ViewportState currentViewport() const;
+
     // GLFW callbacks (static → forward to instance)
     static void onScroll(GLFWwindow* w, double x, double y);
     static void onMouseButton(GLFWwindow* w, int button, int action, int mods);
