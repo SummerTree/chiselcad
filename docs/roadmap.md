@@ -93,14 +93,17 @@ cover. Fixed:
   default-constructed `Interpreter`) falls back to OpenSCAD's own defaults
   (`$vpr=[55,0,25]`, `$vpt=[0,0,0]`, `$vpd=140`) instead of `undef`. No
   roll in this camera model, so `$vpr[1]` is always 0.
-
-**Explicitly deferred, not done in this pass** (tracked here so they aren't
-lost, not because they don't matter):
-- `cube`/`sphere`/`translate`/etc. are reserved lexer keywords rather than
-  ordinary identifiers, so (unlike real OpenSCAD) a script can't use one of
-  those names as a variable. Real-world impact is low, but it's a genuine
-  parser-level deviation and any fix is a grammar-level change, not a
-  point fix — out of scope here.
+- [x] `cube`/`sphere`/`translate`/etc. are no longer reserved lexer
+  keywords — matching real OpenSCAD, they're ordinary identifiers that the
+  Parser recognises by name only at statement-start call position
+  (`kBuiltinNodeNames` in `Parser.cpp`). The Lexer's keyword table now
+  holds only genuine grammar keywords (`if`/`else`/`for`/`each`/`module`/
+  `function`/`let`/`include`/`use`/`undef`/`true`/`false`); builtins and
+  variables live in separate namespaces, so `cube = 5;` followed later by
+  `cube(cube);`, a module parameter named `scale`, or a `for`/`let`
+  variable named `rotate` all now parse correctly. This was the last
+  gap deferred from the initial v3.5 pass, closing out feature completeness
+  with OpenSCAD's builtin/keyword surface.
 
 ## v3.6 — First-class function literals ✓
 

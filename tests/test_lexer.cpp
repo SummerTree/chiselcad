@@ -30,26 +30,30 @@ static std::vector<TokenKind> kinds(std::string_view src) {
 }
 
 // ---------------------------------------------------------------------------
-// Primitives
+// Primitives — builtin module names are NOT reserved lexer keywords (unlike
+// real keywords such as `if`/`module`), so they lex as plain Ident. The
+// Parser recognises them by name at statement-start position instead (see
+// kBuiltinNodeNames in Parser.cpp / Parser:builtin names usable as variables
+// in test_parser.cpp).
 // ---------------------------------------------------------------------------
-TEST_CASE("Lexer:primitive keywords", "[lexer]") {
-    REQUIRE(kinds("cube") == std::vector{TokenKind::Cube});
-    REQUIRE(kinds("sphere") == std::vector{TokenKind::Sphere});
-    REQUIRE(kinds("cylinder") == std::vector{TokenKind::Cylinder});
+TEST_CASE("Lexer:primitive names lex as plain identifiers", "[lexer]") {
+    REQUIRE(kinds("cube") == std::vector{TokenKind::Ident});
+    REQUIRE(kinds("sphere") == std::vector{TokenKind::Ident});
+    REQUIRE(kinds("cylinder") == std::vector{TokenKind::Ident});
 }
 
 // ---------------------------------------------------------------------------
-// Boolean keywords
+// Boolean op names — also plain identifiers, not reserved keywords
 // ---------------------------------------------------------------------------
-TEST_CASE("Lexer:boolean keywords", "[lexer]") {
-    REQUIRE(kinds("union") == std::vector{TokenKind::Union});
-    REQUIRE(kinds("difference") == std::vector{TokenKind::Difference});
-    REQUIRE(kinds("intersection") == std::vector{TokenKind::Intersection});
+TEST_CASE("Lexer:boolean op names lex as plain identifiers", "[lexer]") {
+    REQUIRE(kinds("union") == std::vector{TokenKind::Ident});
+    REQUIRE(kinds("difference") == std::vector{TokenKind::Ident});
+    REQUIRE(kinds("intersection") == std::vector{TokenKind::Ident});
 }
 
-TEST_CASE("Lexer:hull and minkowski keywords", "[lexer]") {
-    REQUIRE(kinds("hull") == std::vector{TokenKind::Hull});
-    REQUIRE(kinds("minkowski") == std::vector{TokenKind::Minkowski});
+TEST_CASE("Lexer:hull and minkowski names lex as plain identifiers", "[lexer]") {
+    REQUIRE(kinds("hull") == std::vector{TokenKind::Ident});
+    REQUIRE(kinds("minkowski") == std::vector{TokenKind::Ident});
 }
 
 TEST_CASE("Lexer:if and else keywords", "[lexer]") {
@@ -88,13 +92,13 @@ TEST_CASE("Lexer:for range tokens", "[lexer]") {
 }
 
 // ---------------------------------------------------------------------------
-// Transform keywords
+// Transform names — also plain identifiers, not reserved keywords
 // ---------------------------------------------------------------------------
-TEST_CASE("Lexer:transform keywords", "[lexer]") {
-    REQUIRE(kinds("translate") == std::vector{TokenKind::Translate});
-    REQUIRE(kinds("rotate") == std::vector{TokenKind::Rotate});
-    REQUIRE(kinds("scale") == std::vector{TokenKind::Scale});
-    REQUIRE(kinds("mirror") == std::vector{TokenKind::Mirror});
+TEST_CASE("Lexer:transform names lex as plain identifiers", "[lexer]") {
+    REQUIRE(kinds("translate") == std::vector{TokenKind::Ident});
+    REQUIRE(kinds("rotate") == std::vector{TokenKind::Ident});
+    REQUIRE(kinds("scale") == std::vector{TokenKind::Ident});
+    REQUIRE(kinds("mirror") == std::vector{TokenKind::Ident});
 }
 
 // ---------------------------------------------------------------------------
@@ -235,12 +239,12 @@ TEST_CASE("Lexer:punctuation", "[lexer]") {
 // Comments
 // ---------------------------------------------------------------------------
 TEST_CASE("Lexer:line comment skipped", "[lexer]") {
-    REQUIRE(kinds("// this is a comment\ncube").back() == TokenKind::Cube);
-    REQUIRE(kinds("cube // trailing comment") == std::vector{TokenKind::Cube});
+    REQUIRE(kinds("// this is a comment\ncube").back() == TokenKind::Ident);
+    REQUIRE(kinds("cube // trailing comment") == std::vector{TokenKind::Ident});
 }
 
 TEST_CASE("Lexer:block comment skipped", "[lexer]") {
-    REQUIRE(kinds("/* comment */ cube") == std::vector{TokenKind::Cube});
+    REQUIRE(kinds("/* comment */ cube") == std::vector{TokenKind::Ident});
     // "cu" and "be" are separate idents — the comment is stripped mid-token
     REQUIRE(kinds("cu/* mid */be") == (std::vector{TokenKind::Ident, TokenKind::Ident}));
 }
@@ -283,7 +287,7 @@ TEST_CASE("Lexer:source location column tracking", "[lexer]") {
 TEST_CASE("Lexer:translate + cube call", "[lexer]") {
     // translate([0, 0, 0]) cube([10, 10, 10]);
     auto t = lex("translate([0, 0, 0])\n    cube([10, 10, 10]);");
-    REQUIRE(t[0].kind == TokenKind::Translate);
+    REQUIRE(t[0].kind == TokenKind::Ident);
     REQUIRE(t[1].kind == TokenKind::LParen);
     REQUIRE(t[2].kind == TokenKind::LBracket);
     REQUIRE(t[3].kind == TokenKind::Number);
@@ -293,7 +297,7 @@ TEST_CASE("Lexer:translate + cube call", "[lexer]") {
 TEST_CASE("Lexer:difference block header", "[lexer]") {
     // difference() {
     REQUIRE(kinds("difference() {") == std::vector{
-                                           TokenKind::Difference,
+                                           TokenKind::Ident,
                                            TokenKind::LParen,
                                            TokenKind::RParen,
                                            TokenKind::LBrace,
@@ -303,7 +307,7 @@ TEST_CASE("Lexer:difference block header", "[lexer]") {
 TEST_CASE("Lexer:cylinder with named params", "[lexer]") {
     // cylinder(h = 10, r = 5, center = true)
     auto t = lex("cylinder(h = 10, r = 5, center = true)");
-    REQUIRE(t[0].kind == TokenKind::Cylinder);
+    REQUIRE(t[0].kind == TokenKind::Ident);
     REQUIRE(t[2].kind == TokenKind::Ident); // h
     REQUIRE(t[2].text == "h");
     REQUIRE(t[3].kind == TokenKind::Equals);
@@ -315,7 +319,7 @@ TEST_CASE("Lexer:$fn per-primitive override", "[lexer]") {
     // sphere(r = 5, $fn = 8)
     // indices: 0=sphere 1=( 2=r 3== 4=5 5=, 6=$fn 7== 8=8 9=)
     auto t = lex("sphere(r = 5, $fn = 8)");
-    REQUIRE(t[0].kind == TokenKind::Sphere);
+    REQUIRE(t[0].kind == TokenKind::Ident);
     REQUIRE(t[6].kind == TokenKind::SpecialVar);
     REQUIRE(t[6].text == "$fn");
     REQUIRE(t[8].numberValue() == 8.0);
@@ -324,7 +328,7 @@ TEST_CASE("Lexer:$fn per-primitive override", "[lexer]") {
 TEST_CASE("Lexer:empty union (edge case from test file)", "[lexer]") {
     // union() {};
     REQUIRE(kinds("union() {};") == std::vector{
-                                        TokenKind::Union,
+                                        TokenKind::Ident,
                                         TokenKind::LParen,
                                         TokenKind::RParen,
                                         TokenKind::LBrace,
@@ -340,22 +344,22 @@ TEST_CASE("Lexer:Eof token is always last", "[lexer]") {
 }
 
 // ---------------------------------------------------------------------------
-// 2-D primitives and extrusion keywords (Tier 4)
+// 2-D primitives and extrusion names (Tier 4) — also plain identifiers
 // ---------------------------------------------------------------------------
-TEST_CASE("Lexer:2D primitive keywords", "[lexer]") {
-    REQUIRE(kinds("square") == std::vector{TokenKind::Square});
-    REQUIRE(kinds("circle") == std::vector{TokenKind::Circle});
-    REQUIRE(kinds("polygon") == std::vector{TokenKind::Polygon});
+TEST_CASE("Lexer:2D primitive names lex as plain identifiers", "[lexer]") {
+    REQUIRE(kinds("square") == std::vector{TokenKind::Ident});
+    REQUIRE(kinds("circle") == std::vector{TokenKind::Ident});
+    REQUIRE(kinds("polygon") == std::vector{TokenKind::Ident});
 }
 
-TEST_CASE("Lexer:extrusion keywords", "[lexer]") {
-    REQUIRE(kinds("linear_extrude") == std::vector{TokenKind::LinearExtrude});
-    REQUIRE(kinds("rotate_extrude") == std::vector{TokenKind::RotateExtrude});
+TEST_CASE("Lexer:extrusion names lex as plain identifiers", "[lexer]") {
+    REQUIRE(kinds("linear_extrude") == std::vector{TokenKind::Ident});
+    REQUIRE(kinds("rotate_extrude") == std::vector{TokenKind::Ident});
 }
 
-TEST_CASE("Lexer:linear_extrude with underscores tokenizes as single keyword", "[lexer]") {
+TEST_CASE("Lexer:linear_extrude with underscores tokenizes as a single identifier", "[lexer]") {
     auto t = lex("linear_extrude(height=10)");
-    REQUIRE(t[0].kind == TokenKind::LinearExtrude);
+    REQUIRE(t[0].kind == TokenKind::Ident);
     REQUIRE(t[0].text == "linear_extrude");
 }
 
@@ -457,7 +461,7 @@ TEST_CASE("Lexer:hash tokenizes as its own kind", "[lexer]") {
     REQUIRE(kinds("#") == std::vector{TokenKind::Hash});
     REQUIRE(kinds("#cube();") == std::vector{
                                      TokenKind::Hash,
-                                     TokenKind::Cube,
+                                     TokenKind::Ident,
                                      TokenKind::LParen,
                                      TokenKind::RParen,
                                      TokenKind::Semicolon,
@@ -469,21 +473,21 @@ TEST_CASE("Lexer:percent/star/bang keep their existing operator token kinds", "[
     // modifiers only when found in statement-start position.
     REQUIRE(kinds("%cube();") == std::vector{
                                      TokenKind::Percent,
-                                     TokenKind::Cube,
+                                     TokenKind::Ident,
                                      TokenKind::LParen,
                                      TokenKind::RParen,
                                      TokenKind::Semicolon,
                                  });
     REQUIRE(kinds("*cube();") == std::vector{
                                      TokenKind::Star,
-                                     TokenKind::Cube,
+                                     TokenKind::Ident,
                                      TokenKind::LParen,
                                      TokenKind::RParen,
                                      TokenKind::Semicolon,
                                  });
     REQUIRE(kinds("!cube();") == std::vector{
                                      TokenKind::Bang,
-                                     TokenKind::Cube,
+                                     TokenKind::Ident,
                                      TokenKind::LParen,
                                      TokenKind::RParen,
                                      TokenKind::Semicolon,
@@ -494,7 +498,7 @@ TEST_CASE("Lexer:stacked modifier characters", "[lexer]") {
     REQUIRE(kinds("#!cube();") == std::vector{
                                       TokenKind::Hash,
                                       TokenKind::Bang,
-                                      TokenKind::Cube,
+                                      TokenKind::Ident,
                                       TokenKind::LParen,
                                       TokenKind::RParen,
                                       TokenKind::Semicolon,
