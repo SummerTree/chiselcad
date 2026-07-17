@@ -2,8 +2,44 @@
 #include <cassert>
 #include <cmath>
 #include <stdexcept>
+#include <unordered_map>
 
 namespace chisel::lang {
+
+// Builtin module/function names (primitives, booleans, transforms, extrusion
+// ops, ...) are NOT reserved lexer keywords — the Lexer always emits Ident
+// for them, so a script is free to use `cube`, `scale`, etc. as an ordinary
+// variable/parameter name, matching real OpenSCAD (where variables/functions
+// and modules live in separate namespaces). This table is how the Parser
+// still recognises `cube(...)`, `translate(...) { ... }`, etc. by name at
+// statement-start position: the TokenKind values below are reused purely as
+// an internal "which builtin is this" tag passed to the existing
+// parsePrimitive/parseBoolean/parseTransform/parseExtrusion helpers — they
+// are never produced by the Lexer itself anymore.
+static const std::unordered_map<std::string_view, TokenKind> kBuiltinNodeNames = {
+    {"cube", TokenKind::Cube},
+    {"sphere", TokenKind::Sphere},
+    {"cylinder", TokenKind::Cylinder},
+    {"union", TokenKind::Union},
+    {"difference", TokenKind::Difference},
+    {"intersection", TokenKind::Intersection},
+    {"hull", TokenKind::Hull},
+    {"minkowski", TokenKind::Minkowski},
+    {"translate", TokenKind::Translate},
+    {"rotate", TokenKind::Rotate},
+    {"scale", TokenKind::Scale},
+    {"mirror", TokenKind::Mirror},
+    {"multmatrix", TokenKind::Multmatrix},
+    {"render", TokenKind::Render},
+    {"color", TokenKind::Color},
+    {"square", TokenKind::Square},
+    {"circle", TokenKind::Circle},
+    {"polygon", TokenKind::Polygon},
+    {"linear_extrude", TokenKind::LinearExtrude},
+    {"rotate_extrude", TokenKind::RotateExtrude},
+    {"offset", TokenKind::Offset},
+    {"projection", TokenKind::Projection},
+};
 
 // A token can be used as a named-parameter name (e.g. `scale=`) if it's an
 // identifier or a keyword scanned as one (both carry non-empty `.text`).
@@ -276,44 +312,6 @@ AstNodePtr Parser::parseNodeInner() {
     TokenKind k = peek().kind;
 
     switch (k) {
-    case TokenKind::Cube:
-    case TokenKind::Sphere:
-    case TokenKind::Cylinder:
-    case TokenKind::Square:
-    case TokenKind::Circle:
-    case TokenKind::Polygon:
-        return parsePrimitive(k);
-
-    case TokenKind::LinearExtrude:
-    case TokenKind::RotateExtrude:
-        return parseExtrusion(k);
-
-    case TokenKind::Offset:
-        return parseOffset();
-
-    case TokenKind::Projection:
-        return parseProjection();
-
-    case TokenKind::Union:
-    case TokenKind::Difference:
-    case TokenKind::Intersection:
-    case TokenKind::Hull:
-    case TokenKind::Minkowski:
-        return parseBoolean(k);
-
-    case TokenKind::Translate:
-    case TokenKind::Rotate:
-    case TokenKind::Scale:
-    case TokenKind::Mirror:
-    case TokenKind::Multmatrix:
-        return parseTransform(k);
-
-    case TokenKind::Render:
-        return parseRender();
-
-    case TokenKind::Color:
-        return parseColor();
-
     case TokenKind::If:
         return parseIf();
 
@@ -323,15 +321,59 @@ AstNodePtr Parser::parseNodeInner() {
     case TokenKind::Let:
         return parseLetNode();
 
-    case TokenKind::Ident:
-        // Could be a module call: name(args) { ... }
-        if (peek(1).kind == TokenKind::LParen)
+    case TokenKind::Ident: {
+        // Builtin construct called by name: cube(...), translate(...) {...},
+        // etc. These names aren't reserved keywords (see kBuiltinNodeNames
+        // above), so a same-named variable is legal elsewhere — but at
+        // statement-start position followed by '(', OpenSCAD always resolves
+        // the name as the builtin module, never as a variable reference.
+        if (peek(1).kind == TokenKind::LParen) {
+            auto it = kBuiltinNodeNames.find(peek().text);
+            if (it != kBuiltinNodeNames.end()) {
+                switch (it->second) {
+                case TokenKind::Cube:
+                case TokenKind::Sphere:
+                case TokenKind::Cylinder:
+                case TokenKind::Square:
+                case TokenKind::Circle:
+                case TokenKind::Polygon:
+                    return parsePrimitive(it->second);
+                case TokenKind::LinearExtrude:
+                case TokenKind::RotateExtrude:
+                    return parseExtrusion(it->second);
+                case TokenKind::Offset:
+                    return parseOffset();
+                case TokenKind::Projection:
+                    return parseProjection();
+                case TokenKind::Union:
+                case TokenKind::Difference:
+                case TokenKind::Intersection:
+                case TokenKind::Hull:
+                case TokenKind::Minkowski:
+                    return parseBoolean(it->second);
+                case TokenKind::Translate:
+                case TokenKind::Rotate:
+                case TokenKind::Scale:
+                case TokenKind::Mirror:
+                case TokenKind::Multmatrix:
+                    return parseTransform(it->second);
+                case TokenKind::Render:
+                    return parseRender();
+                case TokenKind::Color:
+                    return parseColor();
+                default:
+                    break; // unreachable — every kBuiltinNodeNames value is handled above
+                }
+            }
+            // Not a builtin name: a user-defined module call.
             return parseModuleCall();
+        }
         // Local variable assignment: name = expr; — valid as a statement in
         // any block (module/for/if/... body), not just at file scope.
         if (peek(1).kind == TokenKind::Equals)
             return parseAssignNode();
         return nullptr;
+    }
 
     case TokenKind::Include:
     case TokenKind::Use:

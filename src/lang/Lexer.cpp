@@ -10,36 +10,21 @@ namespace chisel::lang {
 // ---------------------------------------------------------------------------
 // Keyword table — maps source text to TokenKind
 // ---------------------------------------------------------------------------
+// Only genuine OpenSCAD grammar keywords go here. Builtin module/function
+// names (cube, sphere, translate, union, offset, ...) are deliberately NOT
+// reserved — matching real OpenSCAD, they lex as plain Ident and are
+// recognised by name at the Parser level (see kBuiltinNodeNames in
+// Parser.cpp). That's what lets a script use `cube`, `scale`, etc. as an
+// ordinary variable/parameter name; the two live in separate namespaces
+// (variable/function vs. module), same as upstream OpenSCAD.
 static const std::unordered_map<std::string_view, TokenKind> kKeywords = {
     {"true", TokenKind::True},
     {"false", TokenKind::False},
-    {"cube", TokenKind::Cube},
-    {"sphere", TokenKind::Sphere},
-    {"cylinder", TokenKind::Cylinder},
-    {"union", TokenKind::Union},
-    {"difference", TokenKind::Difference},
-    {"intersection", TokenKind::Intersection},
-    {"hull", TokenKind::Hull},
-    {"minkowski", TokenKind::Minkowski},
-    {"translate", TokenKind::Translate},
-    {"rotate", TokenKind::Rotate},
-    {"scale", TokenKind::Scale},
-    {"mirror", TokenKind::Mirror},
-    {"multmatrix", TokenKind::Multmatrix},
-    {"render", TokenKind::Render},
-    {"color", TokenKind::Color},
     {"if", TokenKind::If},
     {"else", TokenKind::Else},
     {"for", TokenKind::For},
     {"each", TokenKind::Each},
     {"module", TokenKind::Module},
-    {"square", TokenKind::Square},
-    {"circle", TokenKind::Circle},
-    {"polygon", TokenKind::Polygon},
-    {"linear_extrude", TokenKind::LinearExtrude},
-    {"rotate_extrude", TokenKind::RotateExtrude},
-    {"offset", TokenKind::Offset},
-    {"projection", TokenKind::Projection},
     {"undef", TokenKind::Undef},
     {"function", TokenKind::Function},
     {"let", TokenKind::Let},

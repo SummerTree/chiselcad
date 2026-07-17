@@ -1026,3 +1026,76 @@ TEST_CASE("Parser:modifier before a nested (block-scoped) assignment is a parse 
     REQUIRE(asAssign(u.children[0]).name == "x");
     REQUIRE(asAssign(u.children[0]).modifiers == ModNone); // rejected, not silently tagged
 }
+
+// ---------------------------------------------------------------------------
+// v3.5 deferred item: builtin module/function names (cube, translate, scale,
+// ...) are not reserved lexer keywords, so a script can use one as an
+// ordinary variable/parameter/loop-variable name — matching real OpenSCAD,
+// where builtins and variables live in separate namespaces.
+// ---------------------------------------------------------------------------
+TEST_CASE("Parser:builtin primitive name usable as a top-level variable", "[parser]") {
+    auto r = parse("cube = 5;\nsphere(cube);");
+    REQUIRE(r.assignments.size() == 1);
+    REQUIRE(r.assignments[0].name == "cube");
+    REQUIRE(r.roots.size() == 1);
+    const auto& p = asPrim(r.roots[0]);
+    REQUIRE(p.kind == PrimitiveNode::Kind::Sphere);
+
+    Interpreter interp;
+    interp.loadAssignments(r);
+    REQUIRE(interp.getVar("cube").asNumber() == Approx(5.0));
+    REQUIRE(interp.evalNumber(*p.params.at("_pos0")) == Approx(5.0));
+}
+
+TEST_CASE("Parser:builtin transform name usable as a variable, still callable as a transform", "[parser]") {
+    // 'scale' is both a variable (assigned above) and a module invocation
+    // (translate(...)) below — separate namespaces, exactly like OpenSCAD.
+    auto r = parse("scale = 2;\ntranslate([scale, 0, 0]) cube(1);");
+    REQUIRE(r.assignments.size() == 1);
+    REQUIRE(r.assignments[0].name == "scale");
+    REQUIRE(r.roots.size() == 1);
+    const auto& t = asTrans(r.roots[0]);
+    REQUIRE(t.kind == TransformNode::Kind::Translate);
+    REQUIRE(t.children.size() == 1);
+
+    Interpreter interp;
+    interp.loadAssignments(r);
+    const auto& vlit = std::get<VectorLit>(*t.vec);
+    REQUIRE(interp.evalNumber(*vlit.elements[0].value) == Approx(2.0));
+}
+
+TEST_CASE("Parser:module parameter named after a builtin transform", "[parser]") {
+    auto r = parse("module box(scale) { cylinder(h=scale, r=1); }\nbox(3);");
+    REQUIRE(r.moduleDefs.size() == 1);
+    REQUIRE(r.moduleDefs[0].params.size() == 1);
+    REQUIRE(r.moduleDefs[0].params[0].name == "scale");
+    REQUIRE(r.roots.size() == 1);
+    auto& c = asModuleCall(r.roots[0]);
+    REQUIRE(c.name == "box");
+}
+
+TEST_CASE("Parser:for-loop variable named after a builtin primitive", "[parser]") {
+    auto r = parse("for (cube = [0:2]) { translate([cube, 0, 0]) sphere(1); }");
+    REQUIRE(r.roots.size() == 1);
+    const auto& f = asFor(r.roots[0]);
+    REQUIRE(f.var == "cube");
+}
+
+TEST_CASE("Parser:let binding named after a builtin boolean op", "[parser]") {
+    auto r = parse("let(union = 4) sphere(union);");
+    REQUIRE(r.roots.size() == 1);
+    const auto& letNode = std::get<LetNode>(*r.roots[0]);
+    REQUIRE(letNode.bindings.size() == 1);
+    REQUIRE(letNode.bindings[0].first == "union");
+    REQUIRE(letNode.children.size() == 1);
+}
+
+TEST_CASE("Parser:named module-call argument named after a builtin transform", "[parser]") {
+    // Previously 'scale=' here would fail to parse as a named argument
+    // because 'scale' lexed as TokenKind::Scale, not Ident.
+    auto r = parse("module box(scale) { cube(scale); }\nbox(scale = 4);");
+    REQUIRE(r.roots.size() == 1);
+    auto& c = asModuleCall(r.roots[0]);
+    REQUIRE(c.args.size() == 1);
+    REQUIRE(c.args[0].name == "scale");
+}

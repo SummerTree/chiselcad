@@ -33,22 +33,30 @@ enum class TokenKind : uint8_t {
     False,  // false
 
     // Identifiers / special variables
-    Ident,      // any unrecognised identifier
+    Ident,      // any unrecognised identifier — also every builtin module/
+                // function name below (Cube, Translate, ...): unlike real
+                // keywords, the Lexer never emits those kinds. They exist
+                // purely as internal tags the Parser assigns by name lookup
+                // (see kBuiltinNodeNames in Parser.cpp) when it recognises a
+                // builtin construct at statement-start position, so that a
+                // script remains free to use e.g. `cube` or `scale` as an
+                // ordinary variable/parameter name — matching real OpenSCAD,
+                // where builtins and variables live in separate namespaces.
     SpecialVar, // $fn  $fs  $fa
 
-    // Primitives
+    // Primitives (see Ident above — not a Lexer-level keyword)
     Cube,
     Sphere,
     Cylinder,
 
-    // Booleans
+    // Booleans (see Ident above — not a Lexer-level keyword)
     Union,
     Difference,
     Intersection,
     Hull,
     Minkowski,
 
-    // Transforms
+    // Transforms (see Ident above — not a Lexer-level keyword)
     Translate,
     Rotate,
     Scale,
@@ -57,7 +65,7 @@ enum class TokenKind : uint8_t {
     Render,
     Color,
 
-    // Control flow / definitions
+    // Control flow / definitions — genuine reserved keywords
     If,       // if
     Else,     // else
     For,      // for
@@ -66,24 +74,24 @@ enum class TokenKind : uint8_t {
     Function, // function
     Let,      // let
 
-    // File inclusion
+    // File inclusion — genuine reserved keywords
     Include,    // include
     Use,        // use
     AngledPath, // <path/to/file.scad> — raw text scanned right after Include/Use
 
     // Literals
-    Undef, // undef
+    Undef, // undef — genuine reserved keyword
 
-    // 2-D primitives
+    // 2-D primitives (see Ident above — not a Lexer-level keyword)
     Square,
     Circle,
     Polygon,
-    // Extrusion operations
+    // Extrusion operations (see Ident above — not a Lexer-level keyword)
     LinearExtrude,
     RotateExtrude,
-    // 2-D → 2-D operations
+    // 2-D → 2-D operations (see Ident above — not a Lexer-level keyword)
     Offset,
-    // 3-D → 2-D operations
+    // 3-D → 2-D operations (see Ident above — not a Lexer-level keyword)
     Projection,
 
     // Range separator
